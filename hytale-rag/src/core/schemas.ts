@@ -65,6 +65,30 @@ export const searchCodeSchema = z.object({
 export type SearchCodeInput = z.infer<typeof searchCodeSchema>;
 
 /**
+ * Client UI search input schema
+ */
+export const searchClientCodeSchema = z.object({
+  query: z
+    .string()
+    .min(1)
+    .describe("Natural language description of what UI element you're looking for"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .optional()
+    .default(5)
+    .describe("Number of results to return (default 5, max 20)"),
+  classFilter: z
+    .string()
+    .optional()
+    .describe("Filter results to a specific category (e.g., DesignSystem, InGame, MainMenu)"),
+});
+
+export type SearchClientCodeInput = z.infer<typeof searchClientCodeSchema>;
+
+/**
  * Game data search input schema
  */
 export const searchGameDataSchema = z.object({

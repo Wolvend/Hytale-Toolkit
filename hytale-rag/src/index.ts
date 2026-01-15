@@ -11,8 +11,10 @@ import { createEmbeddingProvider } from "./providers/embedding/factory.js";
 import { createVectorStore } from "./providers/vectorstore/factory.js";
 import { ToolRegistry, type ToolContext } from "./core/tools/index.js";
 import { searchCodeTool } from "./core/tools/search-code.js";
+import { searchClientCodeTool } from "./core/tools/search-client-code.js";
 import { searchGameDataTool } from "./core/tools/search-gamedata.js";
 import { codeStatsTool } from "./core/tools/code-stats.js";
+import { clientCodeStatsTool } from "./core/tools/client-code-stats.js";
 import { gameDataStatsTool } from "./core/tools/gamedata-stats.js";
 import { startMCPServer } from "./servers/mcp/index.js";
 import { createRESTServer, startRESTServer } from "./servers/rest/index.js";
@@ -65,8 +67,10 @@ async function main() {
   // Create tool registry and register tools
   const registry = new ToolRegistry();
   registry.register(searchCodeTool);
+  registry.register(searchClientCodeTool);
   registry.register(searchGameDataTool);
   registry.register(codeStatsTool);
+  registry.register(clientCodeStatsTool);
   registry.register(gameDataStatsTool);
 
   // Create tool context

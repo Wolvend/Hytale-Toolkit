@@ -238,7 +238,7 @@ export function getMinimalConfig(overrides?: Partial<AppConfig>): AppConfig {
       provider: "lancedb",
       path: path.resolve(process.cwd(), "data", "lancedb"),
     },
-    tables: { code: "hytale_methods", gamedata: "hytale_gamedata" },
+    tables: { code: "hytale_methods", clientUI: "hytale_client_ui", gamedata: "hytale_gamedata" },
     api: {
       rateLimit: { windowMs: 60000, max: 100 },
       auth: { enabled: false, apiKeys: [] },

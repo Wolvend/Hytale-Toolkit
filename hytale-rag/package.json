@@ -10,6 +10,7 @@
     "start:openai": "HYTALE_RAG_MODE=openai tsx src/index.ts",
     "start:all": "HYTALE_RAG_MODE=all tsx src/index.ts",
     "ingest": "tsx src/ingest.ts",
+    "ingest-client": "tsx src/ingest-client.ts",
     "ingest-gamedata": "tsx src/ingest-gamedata.ts",
     "search": "tsx src/search.ts"
   },

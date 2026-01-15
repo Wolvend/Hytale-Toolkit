@@ -28,7 +28,22 @@ Replace `<path-to-your-hytale-install>` with your Hytale installation directory.
 
 This creates the `/decompiled` folder with the full server source code.
 
-### 2. Generate Javadocs
+### 2. Locate Client UI Files (Optional)
+
+The Hytale client is a native C++ application (not Java), but it includes UI definition files that can be indexed for modding. These files are located in your Hytale installation at:
+
+```
+<path-to-your-hytale-install>/Client/Data/
+```
+
+This directory contains:
+- **XAML files** - Noesis GUI templates for UI styling and layout
+- **.ui files** - Hytale's custom UI component definitions
+- **JSON files** - NodeEditor node schemas and configuration
+
+No decompilation is needed - these files are already in readable format.
+
+### 3. Generate Javadocs
 
 Generate searchable API documentation from the decompiled source:
 
@@ -49,11 +64,14 @@ This creates the `/docs` folder. Open `docs/index.html` in a browser.
 ### `/decompiled`
 Decompiled Hytale server source code (generated locally). Browse and search the full server implementation.
 
+### Client UI Files
+The Hytale client UI files (XAML, .ui, JSON) are located in your Hytale installation's `Client/Data` directory. These define the visual appearance of the game UI and can be indexed for semantic search.
+
 ### `/docs`
 Javadocs generated from the decompiled source (generated locally). Open `index.html` in a browser for searchable API documentation.
 
 ### `/hytale-rag`
-LLM-agnostic semantic search for Hytale code and game data. Includes 37,000+ indexed methods and 8,400+ game data items searchable by natural language.
+LLM-agnostic semantic search for Hytale code and game data. Includes indexed methods from both server and client code, plus 8,400+ game data items searchable by natural language.
 
 **Option 1: Docker (Recommended)**
 
@@ -104,15 +122,32 @@ Set `HYTALE_RAG_MODE` environment variable to choose which server(s) to run:
 
 **REST API Example:**
 ```bash
+# Search server code
 curl -X POST http://localhost:3000/v1/search/code \
   -H "Content-Type: application/json" \
   -d '{"query": "player inventory management"}'
+
+# Search client UI files
+curl -X POST http://localhost:3000/v1/search/client-code \
+  -H "Content-Type: application/json" \
+  -d '{"query": "inventory hotbar layout"}'
 ```
+
+**Indexing Client UI Files:**
+
+To index the client UI files for semantic search:
+```bash
+cd hytale-rag
+npm run ingest-client "<path-to-your-hytale-install>/Client/Data"
+```
+
+This indexes XAML templates, .ui components, and NodeEditor definitions for searching.
 
 **Claude Code Integration:**
 
 Configure hytale-rag as an MCP server in Claude Code, then ask things like:
-- "Search the Hytale code for player movement handling"
+- "Search the Hytale server code for player movement handling"
+- "Search the client UI files for inventory layout"
 - "Find methods related to inventory management"
 - "What items drop from zombies?"
 - "How does the farming system work?"

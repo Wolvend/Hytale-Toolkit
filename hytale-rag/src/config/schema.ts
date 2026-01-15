@@ -65,8 +65,10 @@ export const vectorStoreConfigSchema = z.object({
  * Table names configuration schema
  */
 export const tablesConfigSchema = z.object({
-  /** Table name for code/methods */
+  /** Table name for server code/methods */
   code: z.string().default("hytale_methods"),
+  /** Table name for client UI files (.xaml, .ui, .json) */
+  clientUI: z.string().default("hytale_client_ui"),
   /** Table name for game data */
   gamedata: z.string().default("hytale_gamedata"),
 });

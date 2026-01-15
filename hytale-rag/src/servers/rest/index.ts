@@ -174,6 +174,17 @@ export function createRESTServer(
     res.json({ data: result.data, metadata: result.metadata });
   });
 
+  app.post("/v1/search/client-code", async (req, res) => {
+    const result = await registry.execute("search_hytale_client_code", req.body, context);
+
+    if (!result.success) {
+      res.status(400).json({ error: result.error, metadata: result.metadata });
+      return;
+    }
+
+    res.json({ data: result.data, metadata: result.metadata });
+  });
+
   app.post("/v1/search/gamedata", async (req, res) => {
     const result = await registry.execute("search_hytale_gamedata", req.body, context);
 
@@ -187,6 +198,17 @@ export function createRESTServer(
 
   app.get("/v1/stats/code", async (_req, res) => {
     const result = await registry.execute("hytale_code_stats", {}, context);
+
+    if (!result.success) {
+      res.status(500).json({ error: result.error, metadata: result.metadata });
+      return;
+    }
+
+    res.json({ data: result.data, metadata: result.metadata });
+  });
+
+  app.get("/v1/stats/client-code", async (_req, res) => {
+    const result = await registry.execute("hytale_client_code_stats", {}, context);
 
     if (!result.success) {
       res.status(500).json({ error: result.error, metadata: result.metadata });
@@ -233,6 +255,7 @@ export function startRESTServer(app: Express, config: AppConfig): void {
     console.log(`  Health check: http://${host}:${port}/health`);
     console.log(`  OpenAPI spec: http://${host}:${port}/openapi.json`);
     console.log(`  Search code:  POST http://${host}:${port}/v1/search/code`);
+    console.log(`  Search client: POST http://${host}:${port}/v1/search/client-code`);
     console.log(`  Search data:  POST http://${host}:${port}/v1/search/gamedata`);
   });
 }
