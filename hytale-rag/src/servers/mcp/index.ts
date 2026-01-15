@@ -6,12 +6,15 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ToolRegistry, ToolContext, zodToJsonSchema } from "../../core/tools/index.js";
+import { ToolRegistry, ToolContext } from "../../core/tools/index.js";
 import { formatCodeResults } from "../../core/tools/search-code.js";
+import { formatClientUIResults } from "../../core/tools/search-client-code.js";
 import { formatGameDataResults } from "../../core/tools/search-gamedata.js";
 import { formatCodeStats } from "../../core/tools/code-stats.js";
+import { formatClientUIStats, type ClientUIStats } from "../../core/tools/client-code-stats.js";
 import { formatGameDataStats } from "../../core/tools/gamedata-stats.js";
 import type { CodeSearchResult, CodeStats, GameDataSearchResult, GameDataStats } from "../../core/types.js";
+import type { ClientUISearchResult } from "../../core/tools/search-client-code.js";
 
 /**
  * Format tool result for MCP response
@@ -20,10 +23,14 @@ function formatToolResult(toolName: string, data: unknown): string {
   switch (toolName) {
     case "search_hytale_code":
       return formatCodeResults(data as CodeSearchResult[]);
+    case "search_hytale_client_code":
+      return formatClientUIResults(data as ClientUISearchResult[]);
     case "search_hytale_gamedata":
       return formatGameDataResults(data as GameDataSearchResult[]);
     case "hytale_code_stats":
       return formatCodeStats(data as CodeStats);
+    case "hytale_client_code_stats":
+      return formatClientUIStats(data as ClientUIStats);
     case "hytale_gamedata_stats":
       return formatGameDataStats(data as GameDataStats);
     default:
@@ -46,12 +53,14 @@ export async function startMCPServer(
     version: "2.0.0",
   });
 
-  // Register all tools from the registry
+  // Register all tools from the registry using the new registerTool API
   for (const tool of registry.getAll()) {
-    server.tool(
+    server.registerTool(
       tool.name,
-      tool.description,
-      zodToJsonSchema(tool.inputSchema) as Record<string, unknown>,
+      {
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      },
       async (input: unknown) => {
         const result = await registry.execute(tool.name, input, context);
 
