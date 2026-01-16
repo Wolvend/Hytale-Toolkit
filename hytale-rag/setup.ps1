@@ -45,11 +45,18 @@ try {
     Write-Host "Step 2: Testing Voyage API key..." -ForegroundColor Yellow
     $env:VOYAGE_API_KEY = $VoyageApiKey
     Push-Location $ScriptDir
-    $testResult = npm run search -- "test" -n 1 2>&1
+
+    # Temporarily allow errors so we can capture npm output
+    $ErrorActionPreference = "Continue"
+    $testResult = npm run search -- "test" -n 1 2>&1 | Out-String
+    $testExitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+
     Pop-Location
 
-    if ($testResult -match "Error|error") {
+    if ($testExitCode -ne 0 -or $testResult -match "Error|error|VOYAGE_API_KEY") {
         Write-Host "  Warning: API key test may have failed. Check your key." -ForegroundColor Yellow
+        Write-Host "  Output:" -ForegroundColor Gray
         Write-Host "  $testResult" -ForegroundColor Gray
     } else {
         Write-Host "  API key works!" -ForegroundColor Green

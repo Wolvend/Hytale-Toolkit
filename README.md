@@ -27,14 +27,10 @@ This creates the `/decompiled` folder with the full server source code.
 Fix assertion-related decompilation issues:
 
 ```bash
-# Windows (PowerShell)
-.\fix-assertions.ps1
-
-# Linux/Mac
-chmod +x fix-assertions.sh && ./fix-assertions.sh
+python fix-assertions.py
 ```
 
-This fixes `<unrepresentable>` tokens and empty static blocks that would prevent javadoc generation.
+This fixes `<unrepresentable>` tokens that would prevent javadoc generation.
 
 ### 3. Generate Javadocs
 
