@@ -700,8 +700,81 @@ def setup_ollama() -> bool:
 
 
 # ============================================================================
-#  Database Download
+#  Database Download & Verification
 # ============================================================================
+
+def verify_database_files(lancedb_dir: Path) -> tuple[bool, str]:
+    """
+    Verify database files exist and appear valid.
+    Returns (success, error_message).
+    """
+    if not lancedb_dir.exists():
+        return False, "Database directory does not exist"
+
+    print("  Verifying database files...")
+    print()
+
+    # Collect all files to verify
+    all_files = []
+    for table in DATA_TABLES:
+        table_dir = lancedb_dir / table
+        if not table_dir.exists():
+            return False, f"Missing table: {table}"
+        # Collect all files in the table directory
+        table_files = list(table_dir.rglob("*"))
+        all_files.extend([(table, f) for f in table_files if f.is_file()])
+
+    if not all_files:
+        return False, "No files found in database"
+
+    total_files = len(all_files)
+    verified = 0
+    errors = []
+    current_table = ""
+
+    bar_width = 30
+
+    for table, filepath in all_files:
+        # Update display when table changes
+        if table != current_table:
+            current_table = table
+            table_name = table.replace(".lance", "")
+
+        # Verify file is readable and non-empty
+        try:
+            size = filepath.stat().st_size
+            if size == 0:
+                errors.append(f"Empty file: {filepath.name}")
+        except Exception as e:
+            errors.append(f"Cannot read {filepath.name}: {e}")
+
+        verified += 1
+        percent = verified * 100 / total_files
+        filled = int(bar_width * percent / 100)
+        bar = "=" * filled + "-" * (bar_width - filled)
+        print(f"\r  [{bar}] {percent:5.1f}% ({verified}/{total_files} files) {table_name:<20}", end="", flush=True)
+
+    print()  # New line after progress bar
+
+    if errors:
+        print()
+        for error in errors[:5]:  # Show first 5 errors
+            print(f"  WARNING: {error}")
+        if len(errors) > 5:
+            print(f"  ... and {len(errors) - 5} more warnings")
+        print()
+
+    # Check for required manifest files in each table
+    for table in DATA_TABLES:
+        table_dir = lancedb_dir / table
+        # LanceDB tables should have at least a _versions directory or manifest
+        has_versions = (table_dir / "_versions").exists()
+        has_manifest = any(table_dir.glob("*.manifest"))
+        if not has_versions and not has_manifest:
+            return False, f"Table {table} appears corrupted (missing manifest)"
+
+    return True, ""
+
 
 def download_database(dest_dir: Path, provider: str) -> bool:
     """Download and extract the LanceDB database from GitHub releases."""
@@ -1384,7 +1457,15 @@ def main():
                 sys.exit(1)
         else:
             print()
-            print("  Verifying database...")
+            # Verify all database files with progress bar
+            success, error = verify_database_files(lancedb_dir)
+            if not success:
+                print(f"  ERROR: {error}")
+                print("  Please run setup again or run index-all.py to rebuild.")
+                sys.exit(1)
+
+            # Also run a quick functional test
+            print("  Running functional test...")
             exit_code, output = run_command(
                 ["npx", "tsx", "src/search.ts", "--stats"],
                 cwd=SCRIPT_DIR
@@ -1394,13 +1475,20 @@ def main():
                 print("  ERROR: Database appears corrupted. Please run setup again.")
                 sys.exit(1)
 
-            print("  Database verified!")
+            print("  Database verified successfully!")
     else:
         print("  Database already exists.")
         if prompt_yes_no("Re-download?", default=False):
             shutil.rmtree(lancedb_dir, ignore_errors=True)
             if not download_database(provider_dir, provider):
                 print("  Download failed.")
+            else:
+                print()
+                success, error = verify_database_files(lancedb_dir)
+                if not success:
+                    print(f"  WARNING: Verification issue: {error}")
+                else:
+                    print("  Database verified successfully!")
 
     # Install npm dependencies
     print()
