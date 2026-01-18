@@ -242,7 +242,47 @@ def main():
         cwd=script_dir
     )
     # Note: --stats doesn't need the API key, so we just check if the DB loads
-    if exit_code != 0 or "error" in output.lower():
+    # Check for database corruption (panics in bytes crate, range errors, etc.)
+    is_corrupted = (
+        "panic" in output.lower() or
+        "range start must not be greater than end" in output or
+        ("thread" in output.lower() and "panicked" in output.lower())
+    )
+
+    if is_corrupted:
+        print("  ERROR: Database appears to be corrupted.")
+        print("  This usually happens due to an incomplete or corrupted download.\n")
+        response = input("  Would you like to delete and re-download the database? [Y/n]: ").strip().lower()
+        if response not in ('n', 'no'):
+            print("  Removing corrupted database...")
+            shutil.rmtree(lancedb_dir, ignore_errors=True)
+
+            print("  Re-downloading database...")
+            if not download_database(data_dir):
+                print("\nERROR: Failed to re-download database. Setup cannot continue.")
+                sys.exit(1)
+
+            # Test again
+            print("  Testing re-downloaded database...")
+            exit_code, output = run_command(
+                ["npx", "tsx", "src/search.ts", "--stats"],
+                cwd=script_dir
+            )
+            if exit_code != 0 or "error" in output.lower() or "panic" in output.lower():
+                print(f"  ERROR: Database still failing after re-download.")
+                print(f"  Output: {output}")
+                print("\n  Please try the following:")
+                print("    1. Delete the 'data/lancedb' directory manually")
+                print("    2. Download lancedb.tar.gz from GitHub releases manually")
+                print("    3. Extract it to the 'data' directory")
+                print("    4. Run setup.py again")
+                sys.exit(1)
+            else:
+                print("  Database loaded successfully after re-download!")
+        else:
+            print("  Skipping re-download. You may need to fix this manually.")
+            print("  Try deleting the 'data/lancedb' directory and running setup again.")
+    elif exit_code != 0 or "error" in output.lower():
         print(f"  Warning: Test may have failed. Output:\n  {output}")
     else:
         print("  Database loaded successfully!")
