@@ -6,6 +6,8 @@
  * Supports multiple server modes: MCP (Claude), REST API, and OpenAI-compatible.
  */
 
+import * as fs from "fs";
+import * as path from "path";
 import { loadConfig } from "./config/index.js";
 import { createEmbeddingProvider } from "./providers/embedding/factory.js";
 import { createVectorStore } from "./providers/vectorstore/factory.js";
@@ -21,14 +23,75 @@ import { createRESTServer, startRESTServer } from "./servers/rest/index.js";
 import { createOpenAIServer, startOpenAIServer } from "./servers/openai/index.js";
 
 /**
+ * Check .env file for common misconfigurations
+ * Returns a helpful error message if issues are found
+ */
+function checkEnvFile(): string | undefined {
+  const envPath = path.resolve(process.cwd(), ".env");
+
+  if (!fs.existsSync(envPath)) {
+    return undefined; // No .env file - will be handled by main config check
+  }
+
+  try {
+    const content = fs.readFileSync(envPath, "utf-8");
+    const lines = content.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+
+    // Check for common issues
+    for (const line of lines) {
+      // Check if someone put just the API key without the variable name
+      if (line.match(/^pa-[A-Za-z0-9_-]+$/)) {
+        return `.env file misconfigured: Found what looks like a Voyage API key without the variable name.\n\nYour .env file contains:\n  ${line}\n\nIt should be:\n  VOYAGE_API_KEY=${line}\n\nPlease fix your .env file and restart Claude Code.`;
+      }
+
+      // Check if someone put just "sk-" style key (OpenAI format)
+      if (line.match(/^sk-[A-Za-z0-9_-]+$/)) {
+        return `.env file misconfigured: Found what looks like an OpenAI API key without the variable name.\n\nYour .env file contains:\n  ${line}\n\nIt should be:\n  OPENAI_API_KEY=${line}\n\nPlease fix your .env file and restart Claude Code.`;
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
+
+  return undefined;
+}
+
+/**
+ * Validate API key format for the given provider
+ * Returns an error message if the key appears invalid
+ */
+function validateApiKeyFormat(provider: string, apiKey: string): string | undefined {
+  switch (provider) {
+    case "voyage":
+      if (!apiKey.startsWith("pa-")) {
+        return `Invalid Voyage API key format. Voyage API keys should start with "pa-".\n\nYour key starts with: "${apiKey.substring(0, 3)}..."\n\nGet a valid API key at https://www.voyageai.com/ and update your .env file.`;
+      }
+      break;
+    case "openai":
+      if (!apiKey.startsWith("sk-")) {
+        return `Invalid OpenAI API key format. OpenAI API keys should start with "sk-".\n\nYour key starts with: "${apiKey.substring(0, 3)}..."\n\nCheck your API key and update your .env file.`;
+      }
+      break;
+  }
+  return undefined;
+}
+
+/**
  * Main entry point
  */
 async function main() {
   // Load configuration
   const config = loadConfig();
 
-  // Validate embedding API key
-  if (!config.embedding.apiKey) {
+  // Check for embedding API key - warn but don't exit (for MCP mode)
+  let configError: string | undefined;
+  let embedding: ReturnType<typeof createEmbeddingProvider> | undefined;
+
+  // First, check for .env file misconfigurations
+  const envFileError = checkEnvFile();
+  if (envFileError) {
+    configError = envFileError;
+  } else if (!config.embedding.apiKey) {
     const envVar =
       config.embedding.provider === "voyage"
         ? "VOYAGE_API_KEY"
@@ -36,20 +99,32 @@ async function main() {
           ? "OPENAI_API_KEY"
           : `${config.embedding.provider.toUpperCase()}_API_KEY`;
 
-    console.error(`Error: ${envVar} environment variable is required.`);
-    console.error(`Set it with: export ${envVar}=your-api-key`);
+    configError = `API key not configured. Get a free Voyage API key at https://www.voyageai.com/ and add it to your .env file:\n\n${envVar}=your-key-here\n\nThen restart Claude Code.`;
+  } else {
+    // Validate API key format
+    const formatError = validateApiKeyFormat(config.embedding.provider, config.embedding.apiKey);
+    if (formatError) {
+      configError = formatError;
+    }
+  }
+
+  // Only exit for non-MCP modes if there's an error (they need the API key to function)
+  if (configError && config.server.mode !== "mcp") {
+    console.error(`Error: ${configError}`);
     process.exit(1);
   }
 
-  // Initialize embedding provider
-  const embedding = createEmbeddingProvider({
-    type: config.embedding.provider,
-    apiKey: config.embedding.apiKey,
-    baseUrl: config.embedding.baseUrl,
-    models: config.embedding.models,
-    batchSize: config.embedding.batchSize,
-    rateLimitMs: config.embedding.rateLimitMs,
-  });
+  // Initialize embedding provider only if no config errors
+  if (!configError && config.embedding.apiKey) {
+    embedding = createEmbeddingProvider({
+      type: config.embedding.provider,
+      apiKey: config.embedding.apiKey,
+      baseUrl: config.embedding.baseUrl,
+      models: config.embedding.models,
+      batchSize: config.embedding.batchSize,
+      rateLimitMs: config.embedding.rateLimitMs,
+    });
+  }
 
   // Initialize vector store
   const vectorStore = createVectorStore({
@@ -78,6 +153,7 @@ async function main() {
     embedding,
     vectorStore,
     config,
+    configError,
   };
 
   const { mode, host, port } = config.server;

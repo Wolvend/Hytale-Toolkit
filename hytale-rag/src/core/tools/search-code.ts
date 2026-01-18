@@ -20,6 +20,14 @@ export const searchCodeTool: ToolDefinition<SearchCodeInput, CodeSearchResult[]>
   inputSchema: searchCodeSchema,
 
   async handler(input, context): Promise<ToolResult<CodeSearchResult[]>> {
+    // Check for configuration errors (e.g., missing API key)
+    if (context.configError || !context.embedding) {
+      return {
+        success: false,
+        error: context.configError || "Embedding provider not configured",
+      };
+    }
+
     // Clamp limit
     const limit = Math.min(Math.max(1, input.limit ?? 5), 20);
 

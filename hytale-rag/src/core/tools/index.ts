@@ -14,12 +14,14 @@ import type { AppConfig } from "../../config/schema.js";
  * Context provided to tool handlers
  */
 export interface ToolContext {
-  /** Embedding provider for query embedding */
-  embedding: EmbeddingProvider;
+  /** Embedding provider for query embedding (undefined if API key not configured) */
+  embedding?: EmbeddingProvider;
   /** Vector store for search operations */
   vectorStore: VectorStore;
   /** Application configuration */
   config: AppConfig;
+  /** Configuration error message (e.g., missing API key) */
+  configError?: string;
 }
 
 /**
