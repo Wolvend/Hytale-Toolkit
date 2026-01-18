@@ -77,6 +77,97 @@ function validateApiKeyFormat(provider: string, apiKey: string): string | undefi
 }
 
 /**
+ * Expected LanceDB tables and their minimum sizes (in bytes)
+ * These are rough minimums to detect obviously corrupted/incomplete extractions
+ */
+const EXPECTED_TABLES = [
+  { name: "hytale_methods.lance", minSize: 50_000_000 },    // ~50MB minimum for code
+  { name: "hytale_client_ui.lance", minSize: 1_000_000 },   // ~1MB minimum for UI
+  { name: "hytale_gamedata.lance", minSize: 5_000_000 },    // ~5MB minimum for gamedata
+];
+
+/**
+ * Get the total size of a directory recursively
+ */
+function getDirectorySize(dirPath: string): number {
+  let totalSize = 0;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        totalSize += getDirectorySize(fullPath);
+      } else if (entry.isFile()) {
+        totalSize += fs.statSync(fullPath).size;
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return totalSize;
+}
+
+/**
+ * Validate LanceDB database files
+ * Returns an error message if the database is missing or corrupted
+ */
+function validateDatabase(dbPath: string): string | undefined {
+  const releaseUrl = "https://github.com/logan-mcduffie/Hytale-Toolkit/releases";
+
+  // Check if database directory exists
+  if (!fs.existsSync(dbPath)) {
+    return `Database not found at: ${dbPath}\n\nThe LanceDB database is required for semantic search.\n\nTo fix this:\n1. Download lancedb.tar.gz from ${releaseUrl}\n2. Extract it to the data/ folder\n\nExpected structure: data/lancedb/hytale_methods.lance/`;
+  }
+
+  // Check each expected table
+  const missingTables: string[] = [];
+  const corruptedTables: string[] = [];
+
+  for (const table of EXPECTED_TABLES) {
+    const tablePath = path.join(dbPath, table.name);
+    const versionsPath = path.join(tablePath, "_versions");
+
+    if (!fs.existsSync(tablePath)) {
+      missingTables.push(table.name);
+      continue;
+    }
+
+    // Check for _versions folder with manifest files (indicates valid LanceDB table)
+    let hasManifest = false;
+    if (fs.existsSync(versionsPath)) {
+      try {
+        const files = fs.readdirSync(versionsPath);
+        hasManifest = files.some(f => f.endsWith(".manifest"));
+      } catch {
+        // Ignore read errors
+      }
+    }
+    if (!hasManifest) {
+      corruptedTables.push(`${table.name} (missing manifest)`);
+      continue;
+    }
+
+    // Check minimum size to detect incomplete extractions
+    const tableSize = getDirectorySize(tablePath);
+    if (tableSize < table.minSize) {
+      const expectedMB = (table.minSize / 1_000_000).toFixed(0);
+      const actualMB = (tableSize / 1_000_000).toFixed(1);
+      corruptedTables.push(`${table.name} (size: ${actualMB}MB, expected: >${expectedMB}MB)`);
+    }
+  }
+
+  if (missingTables.length > 0) {
+    return `Database incomplete - missing tables:\n  ${missingTables.join("\n  ")}\n\nTo fix this:\n1. Delete the existing data/lancedb folder\n2. Download lancedb.tar.gz from ${releaseUrl}\n3. Extract it to the data/ folder`;
+  }
+
+  if (corruptedTables.length > 0) {
+    return `Database appears corrupted or incomplete:\n  ${corruptedTables.join("\n  ")}\n\nThis usually happens when the extraction was interrupted or incomplete.\n\nTo fix this:\n1. Delete the existing data/lancedb folder\n2. Re-download lancedb.tar.gz from ${releaseUrl}\n3. Extract it again to the data/ folder`;
+  }
+
+  return undefined;
+}
+
+/**
  * Main entry point
  */
 async function main() {
@@ -126,6 +217,20 @@ async function main() {
     });
   }
 
+  // Validate database files before trying to connect
+  if (!configError && config.vectorStore.path) {
+    const dbError = validateDatabase(config.vectorStore.path);
+    if (dbError) {
+      configError = dbError;
+
+      // For non-MCP modes, exit immediately
+      if (config.server.mode !== "mcp") {
+        console.error(`Error: ${dbError}`);
+        process.exit(1);
+      }
+    }
+  }
+
   // Initialize vector store
   const vectorStore = createVectorStore({
     type: config.vectorStore.provider,
@@ -136,8 +241,10 @@ async function main() {
     namespace: config.vectorStore.namespace,
   });
 
-  // Connect to vector store
-  await vectorStore.connect();
+  // Connect to vector store (skip if database validation failed)
+  if (!configError) {
+    await vectorStore.connect();
+  }
 
   // Create tool registry and register tools
   const registry = new ToolRegistry();

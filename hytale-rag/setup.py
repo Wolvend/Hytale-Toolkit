@@ -8,9 +8,94 @@ Works on Windows, macOS, and Linux.
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
+import tarfile
+import urllib.request
 from pathlib import Path
+
+# GitHub release URL for the LanceDB database
+GITHUB_REPO = "logan-mcduffie/Hytale-Toolkit"
+LANCEDB_RELEASE_ASSET = "lancedb.tar.gz"
+
+
+def download_database(dest_dir: Path) -> bool:
+    """Download and extract the LanceDB database from GitHub releases."""
+    import ssl
+
+    # Create data directory if it doesn't exist
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    tarball_path = dest_dir / LANCEDB_RELEASE_ASSET
+
+    # Get the latest release download URL
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    download_url = None
+
+    print("  Fetching latest release info...")
+    try:
+        # Create SSL context that doesn't verify (for corporate proxies)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        req = urllib.request.Request(api_url, headers={"User-Agent": "Hytale-RAG-Setup"})
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+            release_info = json.loads(response.read().decode())
+
+        for asset in release_info.get("assets", []):
+            if asset["name"] == LANCEDB_RELEASE_ASSET:
+                download_url = asset["browser_download_url"]
+                break
+
+        if not download_url:
+            print(f"  ERROR: Could not find {LANCEDB_RELEASE_ASSET} in latest release.")
+            print(f"  Please download manually from: https://github.com/{GITHUB_REPO}/releases")
+            return False
+
+    except Exception as e:
+        print(f"  ERROR: Failed to fetch release info: {e}")
+        print(f"  Please download manually from: https://github.com/{GITHUB_REPO}/releases")
+        return False
+
+    # Download the tarball
+    print(f"  Downloading {LANCEDB_RELEASE_ASSET}...")
+    print(f"  URL: {download_url}")
+    try:
+        def show_progress(block_num, block_size, total_size):
+            downloaded = block_num * block_size
+            if total_size > 0:
+                percent = min(100, downloaded * 100 / total_size)
+                mb_downloaded = downloaded / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024)
+                print(f"\r  Progress: {percent:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)", end="", flush=True)
+
+        req = urllib.request.Request(download_url, headers={"User-Agent": "Hytale-RAG-Setup"})
+        urllib.request.urlretrieve(download_url, tarball_path, reporthook=show_progress)
+        print()  # New line after progress
+
+    except Exception as e:
+        print(f"\n  ERROR: Failed to download: {e}")
+        print(f"  Please download manually from: https://github.com/{GITHUB_REPO}/releases")
+        return False
+
+    # Extract the tarball
+    print("  Extracting database...")
+    try:
+        with tarfile.open(tarball_path, "r:gz") as tar:
+            tar.extractall(path=dest_dir)
+        print("  Extraction complete!")
+
+        # Clean up the tarball
+        tarball_path.unlink()
+
+    except Exception as e:
+        print(f"  ERROR: Failed to extract: {e}")
+        print("  The downloaded file may be corrupted. Please try again.")
+        return False
+
+    return True
 
 
 def get_claude_config_path() -> Path:
@@ -87,13 +172,29 @@ def main():
         print("ERROR: package.json not found. Run this script from the hytale-rag directory.")
         sys.exit(1)
 
-    if not (script_dir / "data" / "lancedb").exists():
-        print("ERROR: LanceDB database not found at data/lancedb.")
-        print("Download lancedb.tar.gz from GitHub Releases and extract it here.")
-        sys.exit(1)
+    # Step 1: Check/Download database
+    data_dir = script_dir / "data"
+    lancedb_dir = data_dir / "lancedb"
 
-    # Step 1: Get API key
-    print("Step 1: API Key Setup")
+    if not lancedb_dir.exists() or not (lancedb_dir / "hytale_methods.lance").exists():
+        print("Step 1: Downloading LanceDB database...")
+        print("  Database not found. Downloading from GitHub Releases...")
+
+        # Clean up any partial download
+        if lancedb_dir.exists():
+            print("  Removing incomplete database...")
+            shutil.rmtree(lancedb_dir, ignore_errors=True)
+
+        if not download_database(data_dir):
+            print("\nERROR: Failed to download database. Setup cannot continue.")
+            sys.exit(1)
+
+        print("  Database ready!\n")
+    else:
+        print("Step 1: Database found\n")
+
+    # Step 2: Get API key
+    print("Step 2: API Key Setup")
     env_file = script_dir / ".env"
 
     if env_file.exists():
@@ -116,16 +217,16 @@ def main():
         env_file.write_text(f"VOYAGE_API_KEY={api_key}\n")
         print(f"  API key saved to {env_file}")
 
-    # Step 2: Install dependencies
-    print("\nStep 2: Installing dependencies...")
+    # Step 3: Install dependencies
+    print("\nStep 3: Installing dependencies...")
     exit_code, output = run_command(["npm", "install"], cwd=script_dir)
     if exit_code != 0:
         print(f"ERROR: npm install failed:\n{output}")
         sys.exit(1)
     print("  Dependencies installed.")
 
-    # Step 3: Test API key
-    print("\nStep 3: Testing Voyage API key...")
+    # Step 4: Test database
+    print("\nStep 4: Testing database...")
 
     # Set up environment for test
     env = os.environ.copy()
@@ -146,41 +247,63 @@ def main():
     else:
         print("  Database loaded successfully!")
 
-    # Step 4: Configure Claude Code
-    print("\nStep 4: Configuring Claude Code MCP server...")
+    # Step 5: Claude Code Integration (Optional)
+    print("\nStep 5: Claude Code Integration (Optional)")
+    print("  The RAG server can be integrated with Claude Code as an MCP server,")
+    print("  or used manually via the command line.\n")
 
-    claude_config_path = get_claude_config_path()
-    mcp_config = get_shell_command(script_dir)
+    response = input("  Do you want to configure Claude Code integration? [Y/n]: ").strip().lower()
+    configure_claude = response not in ('n', 'no')
 
-    # Read existing config or create new
-    if claude_config_path.exists():
-        try:
-            config = json.loads(claude_config_path.read_text())
-        except json.JSONDecodeError:
-            print(f"  Warning: Could not parse existing {claude_config_path}, creating new config")
+    if configure_claude:
+        print("\n  Configuring Claude Code MCP server...")
+
+        claude_config_path = get_claude_config_path()
+        mcp_config = get_shell_command(script_dir)
+
+        # Read existing config or create new
+        if claude_config_path.exists():
+            try:
+                config = json.loads(claude_config_path.read_text())
+            except json.JSONDecodeError:
+                print(f"  Warning: Could not parse existing {claude_config_path}, creating new config")
+                config = {}
+        else:
             config = {}
+
+        # Ensure mcpServers exists
+        if "mcpServers" not in config:
+            config["mcpServers"] = {}
+
+        # Add or update hytale-rag server
+        config["mcpServers"]["hytale-rag"] = mcp_config
+
+        # Write config
+        claude_config_path.write_text(json.dumps(config, indent=2))
+        print(f"  Added 'hytale-rag' MCP server to {claude_config_path}")
+
+        # Done - Claude integration
+        print("\n=== Setup Complete ===\n")
+        print("The 'hytale-rag' MCP server has been configured for Claude Code.\n")
+        print("To use it:")
+        print("  1. Restart Claude Code (or any running Claude Code instances)")
+        print("  2. Ask Claude to search the Hytale codebase, e.g.:")
+        print("     'Search the Hytale code for player movement handling'")
+        print("     'Find methods related to inventory management'")
     else:
-        config = {}
+        # Done - Manual usage only
+        print("\n=== Setup Complete ===\n")
+        print("The RAG server is ready for manual use.\n")
+        print("To search the codebase, run:")
+        print(f"  cd {script_dir}")
+        print("  npx tsx src/search.ts \"your search query\"\n")
+        print("Examples:")
+        print("  npx tsx src/search.ts \"player movement handling\"")
+        print("  npx tsx src/search.ts \"inventory management\" --limit 10")
+        print("  npx tsx src/search.ts \"how to craft iron sword\" --type recipe")
+        print("  npx tsx src/search.ts --stats")
+        print("\nYou can run this setup script again to configure Claude Code integration later.")
 
-    # Ensure mcpServers exists
-    if "mcpServers" not in config:
-        config["mcpServers"] = {}
-
-    # Add or update hytale-rag server
-    config["mcpServers"]["hytale-rag"] = mcp_config
-
-    # Write config
-    claude_config_path.write_text(json.dumps(config, indent=2))
-    print(f"  Added 'hytale-rag' MCP server to {claude_config_path}")
-
-    # Done
-    print("\n=== Setup Complete ===\n")
-    print("The 'hytale-rag' MCP server has been configured for Claude Code.\n")
-    print("To use it:")
-    print("  1. Restart Claude Code (or any running Claude Code instances)")
-    print("  2. Ask Claude to search the Hytale codebase, e.g.:")
-    print("     'Search the Hytale code for player movement handling'")
-    print("     'Find methods related to inventory management'")
     print("\nAvailable tools:")
     print("  Server Code Search:")
     print("    - search_hytale_code: Semantic search over 37,000+ server methods")
