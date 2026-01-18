@@ -104,6 +104,26 @@ def prompt_choice(options: list[tuple[str, str]], prompt_text: str = "Select an 
         print(f"  Please enter a number between 1 and {len(options)}.")
 
 
+def prompt_ram_allocation(default: int = 8) -> int:
+    """Prompt user for RAM allocation in GB. Returns the value in GB."""
+    print(f"  How much RAM (in GB) should be allocated for decompilation/docs?")
+    print(f"  Default is {default}GB which is usually enough.")
+    print(f"  If you encounter OutOfMemory errors, try increasing this value.")
+    print()
+
+    while True:
+        response = input(f"  RAM allocation in GB [{default}]: ").strip()
+        if response == "":
+            return default
+        try:
+            value = int(response)
+            if 2 <= value <= 64:
+                return value
+            print("  Please enter a value between 2 and 64 GB.")
+        except ValueError:
+            print("  Please enter a valid number.")
+
+
 def is_admin() -> bool:
     """Check if running with admin/root privileges."""
     if platform.system() == "Windows":
@@ -280,7 +300,7 @@ def get_hytale_install_path(env: dict[str, str]) -> str | None:
 #  Decompilation
 # ============================================================================
 
-def decompile_server(install_path: str, env: dict[str, str]) -> bool:
+def decompile_server(install_path: str, env: dict[str, str], ram_gb: int = 8) -> bool:
     """Decompile HytaleServer.jar using Vineflower."""
     server_jar = Path(install_path) / "Server" / "HytaleServer.jar"
 
@@ -304,6 +324,7 @@ def decompile_server(install_path: str, env: dict[str, str]) -> bool:
     print()
     print(f"  Source:  {server_jar}")
     print(f"  Output:  {DECOMPILED_DIR}")
+    print(f"  RAM:     {ram_gb}GB")
     print()
     print("  Decompiling... (this may take several minutes)")
     print()
@@ -311,8 +332,8 @@ def decompile_server(install_path: str, env: dict[str, str]) -> bool:
     # Run Vineflower with progress output
     cmd = [
         "java",
-        "-Xms2G",   # Initial heap size
-        "-Xmx8G",   # Maximum heap size
+        "-Xms2G",           # Initial heap size
+        f"-Xmx{ram_gb}G",   # Maximum heap size (user-configured)
         "-jar", str(VINEFLOWER_JAR),
         "-dgs=1",  # Decompile generic signatures
         "-asc=1",  # ASCII string characters
@@ -478,7 +499,7 @@ def fix_decompiled_files() -> int:
 #  Javadoc Generation
 # ============================================================================
 
-def generate_javadocs(include_private: bool = False) -> bool:
+def generate_javadocs(include_private: bool = False, ram_gb: int = 8) -> bool:
     """Generate Javadocs from decompiled source."""
     if not DECOMPILED_DIR.exists():
         print("  ERROR: No decompiled code found. Please decompile first.")
@@ -499,7 +520,7 @@ def generate_javadocs(include_private: bool = False) -> bool:
     fix_decompiled_files()
 
     print()
-    print("  Generating Javadocs... (this may take a while)")
+    print(f"  Generating Javadocs (using {ram_gb}GB RAM)... (this may take a while)")
     print()
 
     # Find all Java files
@@ -509,8 +530,8 @@ def generate_javadocs(include_private: bool = False) -> bool:
     # Build javadoc command
     cmd = [
         "javadoc",
-        "-J-Xms2G",         # Initial heap size
-        "-J-Xmx8G",         # Maximum heap size
+        "-J-Xms2G",             # Initial heap size
+        f"-J-Xmx{ram_gb}G",     # Maximum heap size (user-configured)
         "-d", str(JAVADOCS_DIR),
         "-quiet",
         "-Xdoclint:none",  # Suppress warnings
@@ -1336,8 +1357,13 @@ def main():
     print("  accurate code assistance and for your own reference.")
     print()
 
+    # Prompt for RAM allocation (used for both decompile and javadocs)
+    ram_gb = 8  # Default
     if prompt_yes_no("Decompile server source code? (recommended)", default=True):
-        if not decompile_server(install_path, env):
+        print()
+        ram_gb = prompt_ram_allocation(default=8)
+        print()
+        if not decompile_server(install_path, env, ram_gb=ram_gb):
             if not (DECOMPILED_DIR.exists() and any(DECOMPILED_DIR.iterdir())):
                 print("\n  WARNING: Decompilation failed and no existing code found.")
                 if not prompt_yes_no("Continue anyway?", default=False):
@@ -1364,7 +1390,7 @@ def main():
                 "Include private methods? (Much more verbose, 2-3x larger)",
                 default=False
             )
-            generate_javadocs(include_private)
+            generate_javadocs(include_private, ram_gb=ram_gb)
     else:
         print("  Skipped: No decompiled code available.")
 
