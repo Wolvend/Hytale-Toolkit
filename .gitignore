@@ -35,3 +35,6 @@ decompiled/
 javadocs/
 
 docs/
+
+# Downloaded JDKs (users must download locally)
+.jdks/
