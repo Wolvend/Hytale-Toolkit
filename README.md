@@ -55,8 +55,7 @@ When the docs aren't enough, browse the actual decompiled implementation to unde
 ### One-Command Setup
 
 ```bash
-cd hytale-rag
-python setup.py
+python hytale-rag/setup.py
 ```
 
 The interactive wizard will:
