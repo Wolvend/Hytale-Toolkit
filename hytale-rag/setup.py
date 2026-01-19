@@ -523,42 +523,116 @@ def generate_javadocs(include_private: bool = False, ram_gb: int = 8) -> bool:
     print(f"  Generating Javadocs (using {ram_gb}GB RAM)... (this may take a while)")
     print()
 
-    # Find all Java files
-    java_files = list(DECOMPILED_DIR.rglob("*.java"))
-    print(f"  Found {len(java_files)} Java files")
+    # Find Hytale Java files only (com/hypixel/**), excluding third-party libs
+    # Also exclude package-info.java (malformed from decompilation)
+    hytale_src = DECOMPILED_DIR / "com" / "hypixel"
+    if not hytale_src.exists():
+        print(f"  ERROR: Hytale source not found at {hytale_src}")
+        return False
+    java_files = [f for f in hytale_src.rglob("*.java") if f.name != "package-info.java"]
+    print(f"  Found {len(java_files)} Hytale Java files (excluding third-party libs)")
 
-    # Build javadoc command
+    # Build javadoc command (no -quiet so we can show progress)
     cmd = [
         "javadoc",
         "-J-Xms2G",             # Initial heap size
         f"-J-Xmx{ram_gb}G",     # Maximum heap size (user-configured)
         "-d", str(JAVADOCS_DIR),
-        "-quiet",
-        "-Xdoclint:none",  # Suppress warnings
+        "-Xdoclint:none",       # Suppress documentation warnings
+        "--ignore-source-errors",  # Continue despite syntax errors in decompiled code
     ]
 
     if include_private:
         cmd.append("-private")
 
     # Add source files (via argfile to avoid command line length limits)
+    # Use forward slashes - Java's @argfile parser treats backslashes as escape chars
     argfile = SCRIPT_DIR / ".javadoc-files.txt"
     with open(argfile, "w") as f:
         for java_file in java_files:
-            f.write(f'"{java_file}"\n')
+            path_str = str(java_file).replace("\\", "/")
+            f.write(f'"{path_str}"\n')
 
     cmd.append(f"@{argfile}")
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        argfile.unlink()  # Clean up
+        # Use Popen to stream output and show progress
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
 
-        if result.returncode == 0:
-            print("  Javadocs generated successfully!")
-            print(f"  Open {JAVADOCS_DIR / 'index.html'} in a browser to view.")
+        # Third-party packages to suppress errors for (missing imports are expected)
+        suppressed_packages = [
+            "io.sentry", "io.netty", "it.unimi.dsi", "javax.annotation",
+            "com.google.common", "org.bson", "ch.randelshofer", "joptsimple",
+            "org.bouncycastle", "com.github.luben", "com.nimbusds", "org.slf4j",
+        ]
+
+        file_count = 0
+        gen_count = 0
+        error_count = 0
+        total_files = len(java_files)
+        # Estimate ~1.5x files for generation (classes + packages + index files)
+        estimated_gen_total = int(total_files * 1.5)
+
+        for line in process.stdout:
+            line = line.strip()
+            if line:
+                # Count "Loading source file" lines for progress
+                if "Loading source file" in line:
+                    file_count += 1
+                    # Extract just the class name
+                    parts = line.split("Loading source file")[-1].strip()
+                    class_name = parts.split("/")[-1].replace(".java...", "")
+                    percent = (file_count * 100) // total_files
+                    print(f"\r  [{percent:3d}%] Loading: {class_name[:50]:<50}", end="", flush=True)
+                elif "Generating" in line:
+                    # Show generation progress
+                    gen_count += 1
+                    percent = min(99, (gen_count * 100) // estimated_gen_total)
+                    # Extract the file being generated
+                    gen_file = line.split("/")[-1].replace("...", "") if "/" in line else "docs"
+                    print(f"\r  [{percent:3d}%] Generating: {gen_file[:50]:<50}", end="", flush=True)
+                elif "error:" in line.lower() and "warning" not in line.lower():
+                    # Suppress errors about missing third-party packages
+                    # Also suppress "cannot find symbol" errors (cascading from missing imports)
+                    if any(pkg in line for pkg in suppressed_packages):
+                        error_count += 1
+                    elif "cannot find symbol" in line or "package" in line and "does not exist" in line:
+                        error_count += 1
+                    else:
+                        # Show non-suppressed errors
+                        print(f"\n  {line}")
+
+        process.wait()
+        print(f"\r  [100%] Done!{' ' * 60}")  # Clear line and show completion
+
+        if error_count > 0:
+            print(f"  (Suppressed {error_count} missing third-party import errors)")
+
+        # Check if any output was actually generated
+        index_html = JAVADOCS_DIR / "index.html"
+        generated_files = list(JAVADOCS_DIR.glob("**/*.html"))
+
+        if index_html.exists():
+            argfile.unlink()  # Clean up on success
+            print(f"  Javadocs generated successfully!")
+            print(f"  Generated {len(generated_files)} HTML files.")
+            print(f"  Open {index_html} in a browser to view.")
+            return True
+        elif generated_files:
+            argfile.unlink()  # Clean up if we got partial output
+            print("  Javadoc generation completed with warnings.")
+            print(f"  Generated {len(generated_files)} HTML files.")
             return True
         else:
-            print("  Javadoc generation completed with warnings.")
-            return True
+            print("  ERROR: Javadoc failed to generate any output.")
+            print(f"  Argfile preserved at: {argfile}")
+            return False
     except Exception as e:
         print(f"  ERROR: {e}")
         return False
