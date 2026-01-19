@@ -28,6 +28,7 @@ from pathlib import Path
 
 GITHUB_REPO = "logan-mcduffie/Hytale-Toolkit"
 OLLAMA_MODEL = "nomic-embed-text"
+JDK_VERSION = 21  # LTS version for javadoc generation
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
@@ -156,7 +157,7 @@ def run_command(cmd: list[str], cwd: Path = None, env: dict = None, shell: bool 
             merged_env.update(env)
 
         result = subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, shell=use_shell, env=merged_env
+            cmd, cwd=cwd, capture_output=True, encoding='utf-8', errors='replace', shell=use_shell, env=merged_env
         )
         return result.returncode, result.stdout + result.stderr
     except Exception as e:
@@ -347,7 +348,8 @@ def decompile_server(install_path: str, env: dict[str, str], ram_gb: int = 8) ->
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            encoding='utf-8',
+            errors='replace',
             bufsize=1
         )
 
@@ -499,14 +501,10 @@ def fix_decompiled_files() -> int:
 #  Javadoc Generation
 # ============================================================================
 
-def generate_javadocs(include_private: bool = False, ram_gb: int = 8) -> bool:
+def generate_javadocs(include_private: bool = False, ram_gb: int = 8, javadoc_path: str = "javadoc") -> bool:
     """Generate Javadocs from decompiled source."""
     if not DECOMPILED_DIR.exists():
         print("  ERROR: No decompiled code found. Please decompile first.")
-        return False
-
-    if not command_exists("javadoc"):
-        print("  ERROR: javadoc not found. Please install JDK.")
         return False
 
     if JAVADOCS_DIR.exists():
@@ -534,7 +532,7 @@ def generate_javadocs(include_private: bool = False, ram_gb: int = 8) -> bool:
 
     # Build javadoc command (no -quiet so we can show progress)
     cmd = [
-        "javadoc",
+        javadoc_path,
         "-J-Xms2G",             # Initial heap size
         f"-J-Xmx{ram_gb}G",     # Maximum heap size (user-configured)
         "-d", str(JAVADOCS_DIR),
@@ -561,7 +559,8 @@ def generate_javadocs(include_private: bool = False, ram_gb: int = 8) -> bool:
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            encoding='utf-8',
+            errors='replace',
             bufsize=1
         )
 
@@ -749,7 +748,8 @@ def pull_ollama_model(model: str = OLLAMA_MODEL) -> bool:
             ["ollama", "pull", model],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            encoding='utf-8',
+            errors='replace'
         )
 
         for line in process.stdout:
@@ -792,6 +792,258 @@ def setup_ollama() -> bool:
     print(f"  Model '{OLLAMA_MODEL}' is ready.")
 
     return True
+
+
+# ============================================================================
+#  JDK Setup (for Javadoc generation)
+# ============================================================================
+
+def detect_jdk_path(version: int) -> str | None:
+    """Try to detect JDK installation path for a specific version."""
+    system = platform.system()
+    version_str = str(version)
+    possible_paths = []
+
+    if system == "Windows":
+        possible_paths = [
+            Path(f"C:/Program Files/Java/jdk-{version}"),
+            Path(f"C:/Program Files/Eclipse Adoptium/jdk-{version}"),
+        ]
+        # Check JAVA_HOME if it contains the version
+        java_home = os.environ.get("JAVA_HOME", "")
+        if version_str in java_home:
+            possible_paths.insert(0, Path(java_home))
+
+        # Check for versioned directories like jdk-21.0.1
+        java_dir = Path("C:/Program Files/Java")
+        if java_dir.exists():
+            for item in java_dir.iterdir():
+                if item.is_dir() and item.name.startswith(f"jdk-{version}"):
+                    possible_paths.insert(0, item)
+        adoptium_dir = Path("C:/Program Files/Eclipse Adoptium")
+        if adoptium_dir.exists():
+            for item in adoptium_dir.iterdir():
+                if item.is_dir() and f"-{version}" in item.name:
+                    possible_paths.insert(0, item)
+
+        # Check local .jdks folder (where we download to)
+        local_jdks = SCRIPT_DIR / ".jdks"
+        if local_jdks.exists():
+            for item in local_jdks.iterdir():
+                if item.is_dir() and f"jdk-{version}" in item.name:
+                    possible_paths.insert(0, item)
+
+    elif system == "Darwin":  # macOS
+        possible_paths = [
+            Path(f"/Library/Java/JavaVirtualMachines/jdk-{version}.jdk/Contents/Home"),
+            Path(f"/Library/Java/JavaVirtualMachines/temurin-{version}.jdk/Contents/Home"),
+        ]
+        java_home = os.environ.get("JAVA_HOME", "")
+        if version_str in java_home:
+            possible_paths.insert(0, Path(java_home))
+
+        # Check local .jdks folder
+        local_jdks = SCRIPT_DIR / ".jdks"
+        if local_jdks.exists():
+            for item in local_jdks.iterdir():
+                if item.is_dir() and f"jdk-{version}" in item.name:
+                    # macOS extracted JDKs have Contents/Home structure
+                    home_path = item / "Contents" / "Home"
+                    if home_path.exists():
+                        possible_paths.insert(0, home_path)
+                    else:
+                        possible_paths.insert(0, item)
+
+    else:  # Linux
+        possible_paths = [
+            Path(f"/usr/lib/jvm/java-{version}-openjdk"),
+            Path(f"/usr/lib/jvm/jdk-{version}"),
+            Path(f"/usr/lib/jvm/temurin-{version}"),
+        ]
+        java_home = os.environ.get("JAVA_HOME", "")
+        if version_str in java_home:
+            possible_paths.insert(0, Path(java_home))
+
+        # Check local .jdks folder
+        local_jdks = SCRIPT_DIR / ".jdks"
+        if local_jdks.exists():
+            for item in local_jdks.iterdir():
+                if item.is_dir() and f"jdk-{version}" in item.name:
+                    possible_paths.insert(0, item)
+
+    javadoc_exe = "javadoc.exe" if system == "Windows" else "javadoc"
+    for path in possible_paths:
+        if path and path.exists() and (path / "bin" / javadoc_exe).exists():
+            return str(path)
+
+    return None
+
+
+def get_adoptium_download_url(version: int) -> tuple[str, str] | None:
+    """Get the Adoptium download URL for a specific JDK version.
+
+    Returns (url, filename) or None if not available.
+    """
+    system = platform.system()
+    machine = platform.machine().lower()
+
+    # Map platform to Adoptium API values
+    if system == "Windows":
+        os_name = "windows"
+    elif system == "Darwin":
+        os_name = "mac"
+    else:
+        os_name = "linux"
+
+    # Map architecture
+    if machine in ("x86_64", "amd64"):
+        arch = "x64"
+    elif machine in ("aarch64", "arm64"):
+        arch = "aarch64"
+    else:
+        arch = "x64"  # Default fallback
+
+    # Try to get the latest release info from Adoptium API
+    api_url = f"https://api.adoptium.net/v3/assets/latest/{version}/ga"
+    params = f"?architecture={arch}&image_type=jdk&os={os_name}&vendor=eclipse"
+
+    try:
+        req = urllib.request.Request(api_url + params)
+        req.add_header("Accept", "application/json")
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            data = json.loads(response.read().decode())
+            if data and len(data) > 0:
+                binary = data[0].get("binary", {})
+                package = binary.get("package", {})
+                download_url = package.get("link")
+                filename = package.get("name")
+
+                if download_url and filename:
+                    return (download_url, filename)
+    except Exception as e:
+        print(f"    Warning: Could not query Adoptium API: {e}")
+
+    return None
+
+
+def download_and_extract_jdk(version: int, target_dir: Path) -> str | None:
+    """Download and extract a JDK from Adoptium.
+
+    Returns the path to the extracted JDK, or None on failure.
+    """
+    print(f"  Fetching JDK {version} download information...")
+
+    url_info = get_adoptium_download_url(version)
+    if not url_info:
+        print(f"    ERROR: Could not find JDK {version} download")
+        return None
+
+    download_url, filename = url_info
+    print(f"    Found: {filename}")
+
+    # Create target directory
+    target_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = target_dir / filename
+
+    # Download the archive
+    print(f"  Downloading JDK {version}...")
+    print(f"    This may take a few minutes...")
+
+    try:
+        # Download with progress
+        def report_progress(block_num, block_size, total_size):
+            if total_size > 0:
+                percent = min(100, block_num * block_size * 100 // total_size)
+                mb_downloaded = block_num * block_size / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024)
+                print(f"\r    [{percent:3d}%] {mb_downloaded:.1f} / {mb_total:.1f} MB", end="", flush=True)
+
+        urllib.request.urlretrieve(download_url, archive_path, reporthook=report_progress)
+        print()  # Newline after progress
+    except Exception as e:
+        print(f"\n    ERROR: Download failed: {e}")
+        return None
+
+    # Extract the archive
+    print(f"  Extracting JDK {version}...")
+
+    try:
+        if filename.endswith(".zip"):
+            import zipfile
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(target_dir)
+        elif filename.endswith(".tar.gz") or filename.endswith(".tgz"):
+            with tarfile.open(archive_path, 'r:gz') as tar_ref:
+                tar_ref.extractall(target_dir)
+        else:
+            print(f"    ERROR: Unknown archive format: {filename}")
+            return None
+
+        # Remove the archive after extraction
+        archive_path.unlink()
+
+        # Find the extracted JDK directory
+        for item in target_dir.iterdir():
+            if item.is_dir() and f"jdk-{version}" in item.name:
+                # On macOS, the JDK might be in Contents/Home
+                if platform.system() == "Darwin":
+                    home_path = item / "Contents" / "Home"
+                    if home_path.exists():
+                        print(f"    Extracted to: {home_path}")
+                        return str(home_path)
+                print(f"    Extracted to: {item}")
+                return str(item)
+
+        print("    ERROR: Could not find extracted JDK directory")
+        return None
+
+    except Exception as e:
+        print(f"    ERROR: Extraction failed: {e}")
+        return None
+
+
+def get_jdk_javadoc_path() -> str | None:
+    """Get the path to javadoc, downloading JDK if needed.
+
+    Returns the full path to javadoc executable, or None if unavailable.
+    """
+    # First check if javadoc is already in PATH
+    if command_exists("javadoc"):
+        return "javadoc"  # Use system javadoc
+
+    # Try to detect installed JDK
+    jdk_path = detect_jdk_path(JDK_VERSION)
+    if jdk_path:
+        javadoc_exe = "javadoc.exe" if platform.system() == "Windows" else "javadoc"
+        return str(Path(jdk_path) / "bin" / javadoc_exe)
+
+    # JDK not found - offer to download
+    print(f"  JDK not found. Javadoc requires a Java Development Kit.")
+    print()
+
+    options = [
+        ("Download JDK automatically", f"Downloads JDK {JDK_VERSION} from Eclipse Adoptium (~200MB)"),
+        ("Skip Javadoc generation", "Continue without generating Javadocs"),
+    ]
+
+    choice = prompt_choice(options, "How would you like to proceed?")
+
+    if choice == 0:
+        # Download JDK
+        jdks_dir = SCRIPT_DIR / ".jdks"
+        print()
+        jdk_path = download_and_extract_jdk(JDK_VERSION, jdks_dir)
+        if jdk_path:
+            print(f"    JDK {JDK_VERSION} installed successfully!")
+            javadoc_exe = "javadoc.exe" if platform.system() == "Windows" else "javadoc"
+            return str(Path(jdk_path) / "bin" / javadoc_exe)
+        else:
+            print("    WARNING: Failed to install JDK")
+            return None
+
+    # User chose to skip
+    return None
 
 
 # ============================================================================
@@ -1460,11 +1712,17 @@ def main():
     if DECOMPILED_DIR.exists() and any(DECOMPILED_DIR.iterdir()):
         if prompt_yes_no("Generate Javadocs?", default=False):
             print()
-            include_private = prompt_yes_no(
-                "Include private methods? (Much more verbose, 2-3x larger)",
-                default=False
-            )
-            generate_javadocs(include_private, ram_gb=ram_gb)
+            # Check for JDK / offer to download
+            javadoc_path = get_jdk_javadoc_path()
+            if javadoc_path:
+                print()
+                include_private = prompt_yes_no(
+                    "Include private methods? (Much more verbose, 2-3x larger)",
+                    default=False
+                )
+                generate_javadocs(include_private, ram_gb=ram_gb, javadoc_path=javadoc_path)
+            else:
+                print("  Skipping Javadoc generation.")
     else:
         print("  Skipped: No decompiled code available.")
 
