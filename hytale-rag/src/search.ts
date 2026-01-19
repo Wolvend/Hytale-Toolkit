@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { embedQuery, type IngestEmbeddingConfig } from "./embedder.js";
 import { search, getStats, type SearchResult } from "./db.js";
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 /**
  * Ingest Hytale Client UI files into LanceDB.
  *

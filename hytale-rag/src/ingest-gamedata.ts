@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 /**
  * Ingest Hytale game data from Assets.zip into LanceDB.
  *

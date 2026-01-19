@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 /**
  * Unified ingestion script that indexes all data for both providers in parallel.
  *
