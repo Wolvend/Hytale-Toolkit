@@ -2003,6 +2003,7 @@ def main():
     # Step 1: Hytale Installation Path
     # =========================================================================
     print_step(1, total_steps, "Hytale Installation")
+    log_section(log, "Step 1: Hytale Installation")
 
     install_path = get_hytale_install_path(env)
     if not install_path:
@@ -2017,6 +2018,7 @@ def main():
     # Step 2: Decompile Source Code
     # =========================================================================
     print_step(2, total_steps, "Decompile Source Code")
+    log_section(log, "Step 2: Decompile Source Code")
 
     print("  Decompiling the server source code gives your AI assistant access to")
     print("  the actual Java implementation. This is highly recommended for")
@@ -2044,6 +2046,7 @@ def main():
     # Step 3: Generate Javadocs
     # =========================================================================
     print_step(3, total_steps, "Generate Javadocs (Optional)")
+    log_section(log, "Step 3: Generate Javadocs")
 
     print("  Javadocs provide browsable HTML documentation of all classes")
     print("  and methods. Useful for exploring the codebase in a browser.")
@@ -2070,6 +2073,7 @@ def main():
     # Step 4: Select Embedding Provider
     # =========================================================================
     print_step(4, total_steps, "Embedding Provider")
+    log_section(log, "Step 4: Embedding Provider")
 
     print("  The RAG system uses embeddings to enable semantic code search.")
     print("  Choose how you want to generate these embeddings:")
@@ -2090,6 +2094,7 @@ def main():
 
     provider_idx = prompt_choice(provider_options, "Select provider")
     provider = "voyage" if provider_idx == 0 else "ollama"
+    log.info(f"Selected embedding provider: {provider}")
 
     env["EMBEDDING_PROVIDER"] = provider
 
@@ -2139,6 +2144,7 @@ def main():
     # Step 5: Install Database
     # =========================================================================
     print_step(5, total_steps, "Install Database")
+    log_section(log, "Step 5: Install Database")
 
     print("  The RAG database contains pre-indexed embeddings for fast search.")
     print("  Downloading the pre-built database is much faster than indexing locally.")
@@ -2224,6 +2230,7 @@ def main():
     # Step 6: AI Tool Integration
     # =========================================================================
     print_step(6, total_steps, "AI Tool Integration (MCP)")
+    log_section(log, "Step 6: AI Tool Integration (MCP)")
 
     print("  The RAG server uses the Model Context Protocol (MCP) to integrate")
     print("  with AI coding assistants. Select which tools you want to configure:")
@@ -2240,11 +2247,13 @@ def main():
 
     if selected_indices:
         selected_clients = [client_ids[i] for i in selected_indices]
+        log.info(f"Selected MCP clients: {selected_clients}")
         print()
         print(f"  Configuring {len(selected_clients)} tool(s)...")
         print()
 
         results = setup_mcp_clients(selected_clients, SCRIPT_DIR)
+        log.info(f"MCP setup results: {results}")
 
         # Show summary
         successful = [c for c, success in results.items() if success]
@@ -2274,6 +2283,7 @@ def main():
             for client_id in failed:
                 print(f"    - {MCP_CLIENTS[client_id]['name']}")
     else:
+        log.info("No MCP clients selected")
         print()
         print("  +----------------------------------------------------------+")
         print("  |                   Setup Complete!                        |")

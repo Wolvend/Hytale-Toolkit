@@ -34,8 +34,14 @@ def setup_logging(script_name: str, repo_root: Path) -> tuple[logging.Logger, Pa
     # Clear any existing handlers (in case of re-initialization)
     logger.handlers.clear()
 
-    # File handler - detailed DEBUG output
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    # File handler - detailed DEBUG output with immediate flush
+    class FlushingFileHandler(logging.FileHandler):
+        """FileHandler that flushes after every emit to prevent lost logs."""
+        def emit(self, record):
+            super().emit(record)
+            self.flush()
+
+    file_handler = FlushingFileHandler(log_file, encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(
         '%(asctime)s [%(levelname)s] %(message)s',
