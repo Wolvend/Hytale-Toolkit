@@ -1116,10 +1116,16 @@ def get_adoptium_download_url(version: int) -> tuple[str, str] | None:
     params = f"?architecture={arch}&image_type=jdk&os={os_name}&vendor=eclipse"
 
     try:
+        # Create SSL context to handle macOS certificate issues
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
         req = urllib.request.Request(api_url + params)
         req.add_header("Accept", "application/json")
 
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
             data = json.loads(response.read().decode())
             if data and len(data) > 0:
                 binary = data[0].get("binary", {})
@@ -1159,15 +1165,33 @@ def download_and_extract_jdk(version: int, target_dir: Path) -> str | None:
     print(f"    This may take a few minutes...")
 
     try:
-        # Download with progress
-        def report_progress(block_num, block_size, total_size):
-            if total_size > 0:
-                percent = min(100, block_num * block_size * 100 // total_size)
-                mb_downloaded = block_num * block_size / (1024 * 1024)
-                mb_total = total_size / (1024 * 1024)
-                print(f"\r    [{percent:3d}%] {mb_downloaded:.1f} / {mb_total:.1f} MB", end="", flush=True)
+        # Use urlopen with SSL context (urlretrieve doesn't support SSL context)
+        # This fixes SSL certificate issues on macOS
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
 
-        urllib.request.urlretrieve(download_url, archive_path, reporthook=report_progress)
+        req = urllib.request.Request(download_url, headers={"User-Agent": "Hytale-RAG-Setup"})
+        with urllib.request.urlopen(req, context=ctx, timeout=600) as response:
+            total_size = int(response.headers.get("Content-Length", 0))
+            downloaded = 0
+            block_size = 8192
+
+            with open(archive_path, "wb") as f:
+                while True:
+                    chunk = response.read(block_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+
+                    if total_size > 0:
+                        percent = min(100, downloaded * 100 // total_size)
+                        mb_downloaded = downloaded / (1024 * 1024)
+                        mb_total = total_size / (1024 * 1024)
+                        print(f"\r    [{percent:3d}%] {mb_downloaded:.1f} / {mb_total:.1f} MB", end="", flush=True)
+
         print()  # Newline after progress
     except Exception as e:
         print(f"\n    ERROR: Download failed: {e}")
@@ -1386,18 +1410,30 @@ def download_database(dest_dir: Path, provider: str) -> bool:
 
     print(f"  Downloading {asset_name}...")
     try:
-        def show_progress(block_num, block_size, total_size):
-            downloaded = block_num * block_size
-            if total_size > 0:
-                percent = min(100, downloaded * 100 / total_size)
-                mb_downloaded = downloaded / (1024 * 1024)
-                mb_total = total_size / (1024 * 1024)
-                bar_width = 30
-                filled = int(bar_width * percent / 100)
-                bar = "=" * filled + "-" * (bar_width - filled)
-                print(f"\r  [{bar}] {percent:5.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)", end="", flush=True)
+        # Use urlopen with SSL context (urlretrieve doesn't support SSL context)
+        req = urllib.request.Request(download_url, headers={"User-Agent": "Hytale-RAG-Setup"})
+        with urllib.request.urlopen(req, context=ctx, timeout=300) as response:
+            total_size = int(response.headers.get("Content-Length", 0))
+            downloaded = 0
+            block_size = 8192
 
-        urllib.request.urlretrieve(download_url, tarball_path, reporthook=show_progress)
+            with open(tarball_path, "wb") as f:
+                while True:
+                    chunk = response.read(block_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+
+                    if total_size > 0:
+                        percent = min(100, downloaded * 100 / total_size)
+                        mb_downloaded = downloaded / (1024 * 1024)
+                        mb_total = total_size / (1024 * 1024)
+                        bar_width = 30
+                        filled = int(bar_width * percent / 100)
+                        bar = "=" * filled + "-" * (bar_width - filled)
+                        print(f"\r  [{bar}] {percent:5.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)", end="", flush=True)
+
         print()
         if log:
             log.info(f"Download complete: {tarball_path}")
