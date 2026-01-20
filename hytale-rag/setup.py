@@ -2094,6 +2094,12 @@ def main():
     env["EMBEDDING_PROVIDER"] = provider
 
     if provider == "voyage":
+        # Clean up Ollama config if switching from Ollama
+        if "OLLAMA_MODEL" in env:
+            del env["OLLAMA_MODEL"]
+            if log:
+                log.info("Removed stale OLLAMA_MODEL from env (switched to Voyage)")
+
         print()
         existing_key = env.get("VOYAGE_API_KEY", "")
         if existing_key:
@@ -2115,6 +2121,12 @@ def main():
                 log.info("User entered Voyage API key (value redacted)")
 
     elif provider == "ollama":
+        # Clean up Voyage config if switching from Voyage
+        if "VOYAGE_API_KEY" in env:
+            del env["VOYAGE_API_KEY"]
+            if log:
+                log.info("Removed stale VOYAGE_API_KEY from env (switched to Ollama)")
+
         print()
         if not setup_ollama():
             print("\n  ERROR: Ollama setup failed.")
