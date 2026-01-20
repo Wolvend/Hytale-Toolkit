@@ -2201,7 +2201,7 @@ def main():
             # Also run a quick functional test
             print("  Running functional test...", flush=True)
             exit_code, output = run_command(
-                ["npx", "tsx", "src/search.ts", "--stats"],
+                ["npx", "--yes", "tsx", "src/search.ts", "--stats"],
                 cwd=SCRIPT_DIR
             )
 
