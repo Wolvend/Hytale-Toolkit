@@ -73,3 +73,51 @@ export interface GameDataStats {
   totalItems: number;
   byType: Record<GameDataType, number>;
 }
+
+// ============ Documentation Types ============
+
+// Types of documentation content
+export type DocsType =
+  | "guide"         // Tutorial/guide content
+  | "reference"     // API reference documentation
+  | "faq"           // Frequently asked questions
+  | "example";      // Code examples
+
+// A chunk of documentation ready for embedding
+export interface DocsChunk {
+  id: string;                    // e.g., "guide:plugin/creating-block"
+  type: DocsType;
+  title: string;                 // Extracted from frontmatter or filename
+  filePath: string;              // Full path to the file
+  relativePath: string;          // Path relative to content/docs/en
+  fileHash: string;              // SHA-256 hash for incremental indexing
+  content: string;               // Raw file content (MDX/Markdown)
+  category?: string;             // e.g., "guides", "plugin", "ecs"
+  description?: string;          // From frontmatter if available
+  textForEmbedding: string;      // Text optimized for semantic search
+}
+
+// A docs chunk with its embedding vector
+export interface EmbeddedDocsChunk extends DocsChunk {
+  vector: number[];
+}
+
+// Search result returned from the docs database
+export interface DocsSearchResult {
+  id: string;
+  type: DocsType;
+  title: string;
+  filePath: string;
+  relativePath: string;
+  content: string;
+  category?: string;
+  description?: string;
+  score: number;
+}
+
+// Stats about indexed documentation
+export interface DocsStats {
+  totalDocs: number;
+  byCategory: Record<string, number>;
+  byType: Record<DocsType, number>;
+}

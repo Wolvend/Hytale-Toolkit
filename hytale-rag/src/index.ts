@@ -18,9 +18,11 @@ import { ToolRegistry, type ToolContext } from "./core/tools/index.js";
 import { searchCodeTool } from "./core/tools/search-code.js";
 import { searchClientCodeTool } from "./core/tools/search-client-code.js";
 import { searchGameDataTool } from "./core/tools/search-gamedata.js";
+import { searchDocsTool } from "./core/tools/search-docs.js";
 import { codeStatsTool } from "./core/tools/code-stats.js";
 import { clientCodeStatsTool } from "./core/tools/client-code-stats.js";
 import { gameDataStatsTool } from "./core/tools/gamedata-stats.js";
+import { docsStatsTool } from "./core/tools/docs-stats.js";
 import { startMCPServer } from "./servers/mcp/index.js";
 import { createRESTServer, startRESTServer } from "./servers/rest/index.js";
 import { createOpenAIServer, startOpenAIServer } from "./servers/openai/index.js";
@@ -333,9 +335,11 @@ async function main() {
   registry.register(searchCodeTool);
   registry.register(searchClientCodeTool);
   registry.register(searchGameDataTool);
+  registry.register(searchDocsTool);
   registry.register(codeStatsTool);
   registry.register(clientCodeStatsTool);
   registry.register(gameDataStatsTool);
+  registry.register(docsStatsTool);
   logger.info(`Registered ${registry.getAll().length} tools: ${registry.getAll().map(t => t.name).join(", ")}`);
 
   // Initialize version checker (non-blocking background check)

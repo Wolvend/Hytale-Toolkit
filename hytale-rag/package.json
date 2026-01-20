@@ -12,6 +12,7 @@
     "ingest": "tsx src/ingest.ts",
     "ingest-client": "tsx src/ingest-client.ts",
     "ingest-gamedata": "tsx src/ingest-gamedata.ts",
+    "ingest-docs": "tsx src/ingest-docs.ts",
     "ingest-all": "tsx src/ingest-all.ts",
     "search": "tsx src/search.ts"
   },

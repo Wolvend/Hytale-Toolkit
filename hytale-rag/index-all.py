@@ -393,6 +393,8 @@ def main():
         sources.append(("Client UI", "src/ingest-client.ts", [str(client_data)]))
     if assets_zip.exists():
         sources.append(("Game Data", "src/ingest-gamedata.ts", [str(assets_zip)]))
+    # Docs are always indexed (from cloned HytaleModding site repo)
+    sources.append(("Docs", "src/ingest-docs.ts", []))
 
     results = {"voyage": [], "ollama": []}
 

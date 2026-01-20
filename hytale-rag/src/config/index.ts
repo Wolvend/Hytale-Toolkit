@@ -259,7 +259,7 @@ export function getMinimalConfig(overrides?: Partial<AppConfig>): AppConfig {
       provider: "lancedb",
       path: getDefaultDataPath(embeddingProvider),
     },
-    tables: { code: "hytale_methods", clientUI: "hytale_client_ui", gamedata: "hytale_gamedata" },
+    tables: { code: "hytale_methods", clientUI: "hytale_client_ui", gamedata: "hytale_gamedata", docs: "hytale_docs" },
     api: {
       rateLimit: { windowMs: 60000, max: 100 },
       auth: { enabled: false, apiKeys: [] },

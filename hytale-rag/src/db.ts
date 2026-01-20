@@ -6,7 +6,7 @@
 
 import * as lancedb from "@lancedb/lancedb";
 import type { EmbeddedChunk, EmbeddedClientUIChunk } from "./embedder.js";
-import type { EmbeddedGameDataChunk } from "./types.js";
+import type { EmbeddedGameDataChunk, EmbeddedDocsChunk } from "./types.js";
 
 /**
  * Search result from the database
@@ -155,8 +155,9 @@ export async function deleteByFilePaths(
   for (let i = 0; i < filePaths.length; i += batchSize) {
     const batch = filePaths.slice(i, i + batchSize);
     // Escape single quotes in file paths and build filter
+    // Use double quotes around column name to preserve case sensitivity
     const escapedPaths = batch.map((p) => `'${p.replace(/'/g, "''")}'`);
-    const filter = `filePath IN (${escapedPaths.join(", ")})`;
+    const filter = `"filePath" IN (${escapedPaths.join(", ")})`;
     await table.delete(filter);
   }
 
@@ -298,7 +299,7 @@ export async function deleteGameDataByFilePaths(
   const batchSize = 100;
   for (let i = 0; i < filePaths.length; i += batchSize) {
     const batch = filePaths.slice(i, i + batchSize);
-    const conditions = batch.map((fp) => `filePath = '${fp.replace(/'/g, "''")}'`);
+    const conditions = batch.map((fp) => `"filePath" = '${fp.replace(/'/g, "''")}'`);
     await table.delete(conditions.join(" OR "));
   }
 
@@ -509,7 +510,7 @@ export async function deleteClientUIByFilePaths(
   const batchSize = 100;
   for (let i = 0; i < filePaths.length; i += batchSize) {
     const batch = filePaths.slice(i, i + batchSize);
-    const conditions = batch.map((fp) => `filePath = '${fp.replace(/'/g, "''")}'`);
+    const conditions = batch.map((fp) => `"filePath" = '${fp.replace(/'/g, "''")}'`);
     await table.delete(conditions.join(" OR "));
   }
 
@@ -540,6 +541,145 @@ export async function addClientUIChunks(
     fileHash: chunk.fileHash,
     content: chunk.content,
     category: chunk.category || "",
+    textForEmbedding: chunk.textForEmbedding,
+    vector: chunk.vector,
+  }));
+
+  await table.add(data);
+}
+
+// ============ Documentation Table Functions ============
+
+/**
+ * Create or replace the docs table with embedded chunks
+ */
+export async function createDocsTable(
+  dbPath: string,
+  chunks: EmbeddedDocsChunk[],
+  tableName: string = "hytale_docs"
+): Promise<void> {
+  const db = await lancedb.connect(dbPath);
+
+  // Prepare data for LanceDB
+  const data = chunks.map((chunk) => ({
+    id: chunk.id,
+    type: chunk.type,
+    title: chunk.title,
+    filePath: chunk.filePath,
+    relativePath: chunk.relativePath,
+    fileHash: chunk.fileHash,
+    content: chunk.content,
+    category: chunk.category || "",
+    description: chunk.description || "",
+    textForEmbedding: chunk.textForEmbedding,
+    vector: chunk.vector,
+  }));
+
+  // Drop existing table if it exists
+  try {
+    await db.dropTable(tableName);
+  } catch {
+    // Table doesn't exist, that's fine
+  }
+
+  // Create new table
+  await db.createTable(tableName, data);
+  console.log(`  Created table '${tableName}' with ${data.length} rows`);
+}
+
+/**
+ * Get existing file hashes from docs table for incremental updates
+ */
+export async function getDocsFileHashes(
+  dbPath: string,
+  tableName: string = "hytale_docs"
+): Promise<Map<string, string>> {
+  const fileHashes = new Map<string, string>();
+
+  try {
+    const db = await lancedb.connect(dbPath);
+    const table = await db.openTable(tableName);
+
+    // Query in batches to handle large tables
+    const batchSize = 10000;
+    let offset = 0;
+
+    while (true) {
+      const batch = await table
+        .query()
+        .select(["filePath", "fileHash"])
+        .limit(batchSize)
+        .offset(offset)
+        .toArray();
+
+      if (batch.length === 0) break;
+
+      for (const row of batch) {
+        if (row.filePath && row.fileHash) {
+          fileHashes.set(row.filePath, row.fileHash);
+        }
+      }
+
+      offset += batchSize;
+    }
+  } catch {
+    // Table doesn't exist or is invalid - return empty map
+  }
+
+  return fileHashes;
+}
+
+/**
+ * Delete docs entries by file paths (for incremental updates)
+ */
+export async function deleteDocsByFilePaths(
+  dbPath: string,
+  filePaths: string[],
+  tableName: string = "hytale_docs"
+): Promise<number> {
+  if (filePaths.length === 0) return 0;
+
+  const db = await lancedb.connect(dbPath);
+  const table = await db.openTable(tableName);
+
+  const beforeCount = await table.countRows();
+
+  // Delete in batches to avoid query size limits
+  const batchSize = 100;
+  for (let i = 0; i < filePaths.length; i += batchSize) {
+    const batch = filePaths.slice(i, i + batchSize);
+    const conditions = batch.map((fp) => `"filePath" = '${fp.replace(/'/g, "''")}'`);
+    await table.delete(conditions.join(" OR "));
+  }
+
+  const afterCount = await table.countRows();
+  return beforeCount - afterCount;
+}
+
+/**
+ * Add docs chunks to existing table (for incremental updates)
+ */
+export async function addDocsChunks(
+  dbPath: string,
+  chunks: EmbeddedDocsChunk[],
+  tableName: string = "hytale_docs"
+): Promise<void> {
+  if (chunks.length === 0) return;
+
+  const db = await lancedb.connect(dbPath);
+  const table = await db.openTable(tableName);
+
+  // Prepare data for LanceDB
+  const data = chunks.map((chunk) => ({
+    id: chunk.id,
+    type: chunk.type,
+    title: chunk.title,
+    filePath: chunk.filePath,
+    relativePath: chunk.relativePath,
+    fileHash: chunk.fileHash,
+    content: chunk.content,
+    category: chunk.category || "",
+    description: chunk.description || "",
     textForEmbedding: chunk.textForEmbedding,
     vector: chunk.vector,
   }));

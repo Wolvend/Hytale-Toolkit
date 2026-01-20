@@ -8,7 +8,7 @@
 import { createEmbeddingProvider } from "./providers/embedding/factory.js";
 import type { EmbeddingProvider, EmbeddingProviderConfig } from "./providers/embedding/interface.js";
 import type { MethodChunk } from "./parser.js";
-import type { GameDataChunk, EmbeddedGameDataChunk } from "./types.js";
+import type { GameDataChunk, EmbeddedGameDataChunk, DocsChunk, EmbeddedDocsChunk } from "./types.js";
 import type { ClientUIChunk } from "./client-ui-parser.js";
 
 /**
@@ -193,6 +193,33 @@ export async function embedClientUIChunks(
   const texts = chunks.map((chunk) => chunk.textForEmbedding);
 
   // Embed all texts (use "text" purpose since this is markup/config, not code)
+  const result = await provider.embedBatch(
+    texts,
+    { purpose: "text", mode: "document" },
+    onProgress
+  );
+
+  // Combine chunks with vectors
+  return chunks.map((chunk, i) => ({
+    ...chunk,
+    vector: result.vectors[i],
+  }));
+}
+
+/**
+ * Embed documentation chunks using the specified provider
+ */
+export async function embedDocsChunks(
+  chunks: DocsChunk[],
+  config: IngestEmbeddingConfig,
+  onProgress?: (current: number, total: number) => void
+): Promise<EmbeddedDocsChunk[]> {
+  const provider = createProviderFromConfig(config);
+
+  // Use the pre-built textForEmbedding field
+  const texts = chunks.map((chunk) => chunk.textForEmbedding);
+
+  // Embed all texts (use "text" purpose since this is documentation, not code)
   const result = await provider.embedBatch(
     texts,
     { purpose: "text", mode: "document" },

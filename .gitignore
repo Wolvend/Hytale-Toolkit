@@ -40,3 +40,6 @@ docs/
 
 # Downloaded JDKs (users must download locally)
 .jdks/
+
+# HytaleModding.dev site clone (for docs indexing)
+site/

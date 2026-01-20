@@ -114,6 +114,44 @@ export const searchGameDataSchema = z.object({
 export type SearchGameDataInput = z.infer<typeof searchGameDataSchema>;
 
 /**
+ * Valid documentation types for filtering
+ */
+export const DOCS_TYPES = [
+  "all",
+  "guide",
+  "reference",
+  "faq",
+  "example",
+] as const;
+
+export type DocsTypeFilter = (typeof DOCS_TYPES)[number];
+
+/**
+ * Documentation search input schema
+ */
+export const searchDocsSchema = z.object({
+  query: z
+    .string()
+    .min(1)
+    .describe("Natural language question about Hytale modding"),
+  type: z
+    .enum(DOCS_TYPES)
+    .optional()
+    .default("all")
+    .describe("Filter by documentation type (default: all)"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .optional()
+    .default(5)
+    .describe("Number of results (default 5, max 20)"),
+});
+
+export type SearchDocsInput = z.infer<typeof searchDocsSchema>;
+
+/**
  * Empty schema for tools with no parameters
  */
 export const emptySchema = z.object({});

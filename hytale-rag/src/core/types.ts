@@ -12,6 +12,11 @@ export {
   EmbeddedGameDataChunk,
   GameDataSearchResult,
   GameDataStats,
+  DocsType,
+  DocsChunk,
+  EmbeddedDocsChunk,
+  DocsSearchResult,
+  DocsStats,
 } from "../types.js";
 
 export { MethodChunk, ParseResult } from "../parser.js";

@@ -71,6 +71,8 @@ export const tablesConfigSchema = z.object({
   clientUI: z.string().default("hytale_client_ui"),
   /** Table name for game data */
   gamedata: z.string().default("hytale_gamedata"),
+  /** Table name for documentation */
+  docs: z.string().default("hytale_docs"),
 });
 
 /**

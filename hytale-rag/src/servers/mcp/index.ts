@@ -11,10 +11,12 @@ import { getLogger } from "../../utils/logger.js";
 import { formatCodeResults } from "../../core/tools/search-code.js";
 import { formatClientUIResults } from "../../core/tools/search-client-code.js";
 import { formatGameDataResults } from "../../core/tools/search-gamedata.js";
+import { formatDocsResults } from "../../core/tools/search-docs.js";
 import { formatCodeStats } from "../../core/tools/code-stats.js";
 import { formatClientUIStats, type ClientUIStats } from "../../core/tools/client-code-stats.js";
 import { formatGameDataStats } from "../../core/tools/gamedata-stats.js";
-import type { CodeSearchResult, CodeStats, GameDataSearchResult, GameDataStats } from "../../core/types.js";
+import { formatDocsStats, type DocsStats } from "../../core/tools/docs-stats.js";
+import type { CodeSearchResult, CodeStats, GameDataSearchResult, GameDataStats, DocsSearchResult } from "../../core/types.js";
 import type { ClientUISearchResult } from "../../core/tools/search-client-code.js";
 import type { VersionInfo } from "../../core/version-checker.js";
 
@@ -29,12 +31,16 @@ function formatToolResult(toolName: string, data: unknown, versionInfo?: Version
       return formatClientUIResults(data as ClientUISearchResult[]);
     case "search_hytale_gamedata":
       return formatGameDataResults(data as GameDataSearchResult[]);
+    case "search_hytale_docs":
+      return formatDocsResults(data as DocsSearchResult[]);
     case "hytale_code_stats":
       return formatCodeStats(data as CodeStats, versionInfo);
     case "hytale_client_code_stats":
       return formatClientUIStats(data as ClientUIStats, versionInfo);
     case "hytale_gamedata_stats":
       return formatGameDataStats(data as GameDataStats, versionInfo);
+    case "hytale_docs_stats":
+      return formatDocsStats(data as DocsStats, versionInfo);
     default:
       return JSON.stringify(data, null, 2);
   }
