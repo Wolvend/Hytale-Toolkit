@@ -1504,6 +1504,11 @@ MCP_CLIENTS = {
         "description": "OpenAI's command-line coding tool",
         "config_type": "toml",
     },
+    "jetbrains": {
+        "name": "JetBrains IDEs (IntelliJ, Rider, etc.)",
+        "description": "GitHub Copilot in JetBrains IDEs",
+        "config_type": "json",
+    },
 }
 
 
@@ -1689,6 +1694,7 @@ def get_client_config_path(client_id: str) -> Path | None:
         "codex": home / ".codex" / "config.toml",
         "cursor": get_cursor_user_settings_path(),
         "vscode": get_vscode_user_settings_path(),
+        "jetbrains": home / ".config" / "github-copilot" / "intellij" / "mcp.json",
     }
     return paths.get(client_id)
 
@@ -1925,6 +1931,40 @@ args = ["{start_script}"]
     return True
 
 
+def setup_jetbrains(script_dir: Path) -> bool:
+    """Configure GitHub Copilot MCP server for JetBrains IDEs (IntelliJ, Rider, etc.)."""
+    # GitHub Copilot in JetBrains uses ~/.config/github-copilot/intellij/mcp.json
+    config_dir = Path.home() / ".config" / "github-copilot" / "intellij"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "mcp.json"
+
+    mcp_config = get_mcp_command_simple(script_dir)
+    # Remove "type" field - not needed for this format
+    mcp_config.pop("type", None)
+
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding='utf-8'))
+        except json.JSONDecodeError:
+            config = {}
+    else:
+        config = {}
+
+    if "servers" not in config:
+        config["servers"] = {}
+
+    config["servers"]["hytale-rag"] = mcp_config
+    config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
+
+    print(f"    Added 'hytale-rag' to {config_path}")
+    print()
+    print("    To use with GitHub Copilot in JetBrains IDEs:")
+    print("      1. Ensure GitHub Copilot plugin is installed")
+    print("      2. Restart your IDE (or reload the project)")
+    print("      3. The hytale-rag tools will be available in Copilot chat")
+    return True
+
+
 def prompt_multi_choice(options: list[tuple[str, str]], prompt_text: str = "Select options") -> list[int]:
     """Prompt user to select multiple options from numbered list. Returns list of 0-based indices."""
     for i, (label, desc) in enumerate(options, 1):
@@ -1978,7 +2018,7 @@ def setup_mcp_clients(selected_clients: list[str], script_dir: Path) -> dict[str
     results = {}
 
     # First, create the start scripts that some clients need
-    if any(c in selected_clients for c in ["vscode", "cursor", "windsurf", "codex"]):
+    if any(c in selected_clients for c in ["vscode", "cursor", "windsurf", "codex", "jetbrains"]):
         print("  Creating MCP start scripts...")
         create_start_scripts(script_dir)
         print()
@@ -1989,6 +2029,7 @@ def setup_mcp_clients(selected_clients: list[str], script_dir: Path) -> dict[str
         "cursor": setup_cursor,
         "windsurf": setup_windsurf,
         "codex": setup_codex,
+        "jetbrains": setup_jetbrains,
     }
 
     for client_id in selected_clients:
