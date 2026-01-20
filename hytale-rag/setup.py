@@ -921,9 +921,10 @@ def start_ollama() -> bool:
 
     if system == "Windows":
         subprocess.Popen(
-            ["ollama", "serve"],
+            "ollama serve",
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            shell=True,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
         )
     else:
@@ -948,12 +949,15 @@ def pull_ollama_model(model: str = OLLAMA_MODEL) -> bool:
     print()
 
     try:
+        cmd = ["ollama", "pull", model]
+        use_shell = platform.system() == "Windows"
         process = subprocess.Popen(
-            ["ollama", "pull", model],
+            " ".join(cmd) if use_shell else cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            shell=use_shell
         )
 
         for line in process.stdout:
