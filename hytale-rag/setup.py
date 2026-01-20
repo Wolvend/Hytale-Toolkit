@@ -85,10 +85,16 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
     while True:
         response = input(f"  {question} {hint}: ").strip().lower()
         if response == "":
+            if log:
+                log.info(f"User prompt: '{question}' -> {'Yes' if default else 'No'} (default)")
             return default
         if response in ("y", "yes"):
+            if log:
+                log.info(f"User prompt: '{question}' -> Yes")
             return True
         if response in ("n", "no"):
+            if log:
+                log.info(f"User prompt: '{question}' -> No")
             return False
         print("  Please enter 'y' or 'n'.")
 
@@ -107,6 +113,8 @@ def prompt_choice(options: list[tuple[str, str]], prompt_text: str = "Select an 
             choice = input(f"  {prompt_text} [1-{len(options)}]: ").strip()
             idx = int(choice) - 1
             if 0 <= idx < len(options):
+                if log:
+                    log.info(f"User choice: '{prompt_text}' -> [{idx + 1}] {options[idx][0]}")
                 return idx
         except ValueError:
             pass
@@ -123,10 +131,14 @@ def prompt_ram_allocation(default: int = 8) -> int:
     while True:
         response = input(f"  RAM allocation in GB [{default}]: ").strip()
         if response == "":
+            if log:
+                log.info(f"User input: RAM allocation -> {default}GB (default)")
             return default
         try:
             value = int(response)
             if 2 <= value <= 64:
+                if log:
+                    log.info(f"User input: RAM allocation -> {value}GB")
                 return value
             print("  Please enter a value between 2 and 64 GB.")
         except ValueError:
@@ -315,6 +327,8 @@ def get_hytale_install_path(env: dict[str, str]) -> str | None:
             print(f"    Client/     : Found")
             print(f"    Server/     : Found")
             print(f"    Assets.zip  : Found")
+            if log:
+                log.info(f"User selected Hytale installation path: {folder}")
             return folder
         else:
             print(f"\n  ERROR: Invalid Hytale installation folder.")
@@ -1774,9 +1788,14 @@ def prompt_multi_choice(options: list[tuple[str, str]], prompt_text: str = "Sele
         response = input(f"  {prompt_text} (e.g., 1,2,3 or A for all): ").strip().lower()
 
         if response == "0" or response == "":
+            if log:
+                log.info(f"User multi-choice: '{prompt_text}' -> None (skipped)")
             return []
 
         if response == "a":
+            if log:
+                selected = [options[i][0] for i in range(len(options))]
+                log.info(f"User multi-choice: '{prompt_text}' -> All: {selected}")
             return list(range(len(options)))
 
         try:
@@ -1789,7 +1808,11 @@ def prompt_multi_choice(options: list[tuple[str, str]], prompt_text: str = "Sele
                 else:
                     raise ValueError()
             if indices:
-                return list(set(indices))  # Remove duplicates
+                result = list(set(indices))  # Remove duplicates
+                if log:
+                    selected = [options[i][0] for i in result]
+                    log.info(f"User multi-choice: '{prompt_text}' -> {selected}")
+                return result
         except ValueError:
             pass
 
@@ -1986,6 +2009,8 @@ def main():
                 print("  ERROR: API key is required for Voyage AI.")
                 sys.exit(1)
             env["VOYAGE_API_KEY"] = api_key
+            if log:
+                log.info("User entered Voyage API key (value redacted)")
 
     elif provider == "ollama":
         print()
