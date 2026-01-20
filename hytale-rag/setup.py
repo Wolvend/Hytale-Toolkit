@@ -690,6 +690,132 @@ def generate_javadocs(include_private: bool = False, ram_gb: int = 8, javadoc_pa
 
 
 # ============================================================================
+#  Node.js / npm Setup
+# ============================================================================
+
+def check_npm_installed() -> bool:
+    """Check if npm is installed."""
+    return command_exists("npm")
+
+
+def check_node_installed() -> bool:
+    """Check if Node.js is installed."""
+    return command_exists("node")
+
+
+def install_nodejs() -> bool:
+    """Install Node.js (which includes npm) based on the current OS."""
+    system = platform.system()
+
+    if system == "Windows":
+        if not is_admin():
+            print("\n  ERROR: Administrator privileges required to install Node.js.")
+            print("  Please restart this script as Administrator, or install Node.js manually:")
+            print("    https://nodejs.org/")
+            return False
+        print("  Installing Node.js via winget...", flush=True)
+        exit_code, output = run_command([
+            "winget", "install", "-e", "--id", "OpenJS.NodeJS.LTS",
+            "--accept-source-agreements", "--accept-package-agreements"
+        ])
+        if exit_code != 0:
+            print(f"  Installation failed. Please install manually: https://nodejs.org/")
+            return False
+
+    elif system == "Darwin":  # macOS
+        if command_exists("brew"):
+            print("  Installing Node.js via Homebrew...", flush=True)
+            exit_code, output = run_command(["brew", "install", "node"], shell=False)
+            if exit_code != 0:
+                print(f"  Installation failed. Please install manually: https://nodejs.org/")
+                return False
+        else:
+            print("  Homebrew not found. Please install Node.js manually:")
+            print("    https://nodejs.org/")
+            print("  Or install Homebrew first: https://brew.sh")
+            return False
+
+    elif system == "Linux":
+        print("  Installing Node.js...", flush=True)
+        # Use NodeSource setup script for latest LTS
+        exit_code, output = run_command(
+            ["bash", "-c", "curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt-get install -y nodejs"],
+            shell=False
+        )
+        if exit_code != 0:
+            # Try alternative for non-Debian systems
+            print("  Debian-based install failed, trying alternative...")
+            exit_code, output = run_command(
+                ["bash", "-c", "curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash - && sudo yum install -y nodejs"],
+                shell=False
+            )
+            if exit_code != 0:
+                print(f"  Installation failed. Please install manually: https://nodejs.org/")
+                return False
+
+    else:
+        print(f"  Unsupported OS: {system}")
+        print("  Please install Node.js manually: https://nodejs.org/")
+        return False
+
+    print("  Node.js installed!")
+    return True
+
+
+def setup_npm() -> bool:
+    """Ensure npm is installed, installing Node.js if needed."""
+    print("  Checking for npm...", flush=True)
+
+    if check_npm_installed():
+        # Get version for display
+        exit_code, output = run_command(["npm", "--version"])
+        version = output.strip() if exit_code == 0 else "unknown"
+        print(f"  npm is installed (v{version}).")
+        return True
+
+    print("  npm is not installed.")
+    print()
+    print("  npm is required to run the MCP server. It comes bundled with Node.js.")
+    print()
+
+    if not prompt_yes_no("Install Node.js (includes npm)?", default=True):
+        print("  Please install Node.js manually: https://nodejs.org/")
+        return False
+
+    if not install_nodejs():
+        return False
+
+    # Verify installation worked
+    # On Windows, we may need to refresh the PATH
+    if platform.system() == "Windows":
+        print("  Verifying installation...", flush=True)
+        # Try to find npm in common install locations
+        possible_paths = [
+            Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "nodejs",
+            Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")) / "nodejs",
+            Path.home() / "AppData" / "Roaming" / "npm",
+        ]
+        for npm_dir in possible_paths:
+            npm_exe = npm_dir / "npm.cmd"
+            if npm_exe.exists():
+                print(f"  Found npm at: {npm_dir}")
+                print()
+                print("  NOTE: You may need to restart your terminal for npm to be in your PATH.")
+                print("  If the next step fails, please close and reopen your terminal,")
+                print("  then run setup.py again.")
+                print()
+                return True
+
+    if check_npm_installed():
+        print("  npm is now available!")
+        return True
+
+    print("  WARNING: npm was installed but may not be in PATH yet.")
+    print("  Please restart your terminal and run setup.py again.")
+    return False
+
+
+# ============================================================================
 #  Ollama Setup
 # ============================================================================
 
@@ -1937,14 +2063,23 @@ def main():
                 else:
                     print("  Database verified successfully!")
 
-    # Install npm dependencies
+    # Ensure npm is installed
     print()
-    print("  Installing npm dependencies...", flush=True)
-    exit_code, output = run_command(["npm", "install"], cwd=SCRIPT_DIR)
-    if exit_code != 0:
-        print(f"  WARNING: npm install had issues: {output[:200]}")
+    if not setup_npm():
+        print()
+        print("  WARNING: npm is required for the MCP server.")
+        print("  You can continue setup, but MCP integration won't work until npm is installed.")
+        if not prompt_yes_no("Continue anyway?", default=False):
+            sys.exit(1)
     else:
-        print("  Dependencies installed.")
+        # Install npm dependencies
+        print()
+        print("  Installing npm dependencies...", flush=True)
+        exit_code, output = run_command(["npm", "install"], cwd=SCRIPT_DIR)
+        if exit_code != 0:
+            print(f"  WARNING: npm install had issues: {output[:200]}")
+        else:
+            print("  Dependencies installed.")
 
     # =========================================================================
     # Step 6: AI Tool Integration
