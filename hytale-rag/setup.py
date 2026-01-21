@@ -2115,8 +2115,30 @@ def main():
         sys.exit(1)
 
     env["HYTALE_INSTALL_PATH"] = install_path
+
+    # Auto-detect and save other paths
+    path_obj = Path(install_path)
+    
+    # Client Data
+    client_data = path_obj / "Client" / "Data"
+    if client_data.exists():
+        env["HYTALE_CLIENT_DATA_DIR"] = str(client_data)
+        if log:
+            log.info(f"Detected Client Data: {client_data}")
+    
+    # Assets (root dir contains Assets.zip)
+    env["HYTALE_ASSETS_DIR"] = install_path
+    
+    # Decompiled source
+    env["HYTALE_DECOMPILED_DIR"] = str(DECOMPILED_DIR)
+    
     save_env(env)
-    print(f"\n  Saved installation path to .env")
+    print(f"\n  Saved configuration to .env:")
+    print(f"    - HYTALE_INSTALL_PATH")
+    if "HYTALE_CLIENT_DATA_DIR" in env:
+        print(f"    - HYTALE_CLIENT_DATA_DIR")
+    print(f"    - HYTALE_ASSETS_DIR")
+    print(f"    - HYTALE_DECOMPILED_DIR")
 
     # =========================================================================
     # Step 2: Decompile Source Code
