@@ -62,30 +62,28 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QGraphicsOpacityEffect
 
-# Import setup functions for MCP configuration
-# NOTE: When running as PyInstaller bundle, setup.py is not bundled - it exists
-# in the user's installed toolkit. MCP configuration must be done by running
-# from the installed toolkit directory, not the standalone installer exe.
+# Import MCP configuration functions
+# When running as PyInstaller bundle, mcp_config.py is bundled at the root
 if getattr(_sys, '_MEIPASS', None):
-    # Running as bundled exe - setup module not available
-    SETUP_AVAILABLE = False
+    _sys.path.insert(0, _sys._MEIPASS)
 else:
-    SCRIPT_DIR = Path(__file__).parent.resolve()
-    sys.path.insert(0, str(SCRIPT_DIR))
-    try:
-        from setup import (
-            setup_claude_code,
-            setup_vscode,
-            setup_cursor,
-            setup_windsurf,
-            setup_codex,
-            setup_jetbrains,
-            create_start_scripts,
-            get_mcp_command_stdio,
-        )
-        SETUP_AVAILABLE = True
-    except ImportError:
-        SETUP_AVAILABLE = False
+    _sys.path.insert(0, str(_Path(__file__).parent.resolve()))
+
+try:
+    from mcp_config import (
+        setup_claude_code,
+        setup_vscode,
+        setup_cursor,
+        setup_windsurf,
+        setup_codex,
+        setup_jetbrains,
+        create_start_scripts,
+        get_mcp_command_stdio,
+    )
+    SETUP_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import mcp_config: {e}")
+    SETUP_AVAILABLE = False
 
 
 def get_base_path() -> Path:
@@ -5093,8 +5091,9 @@ class IntegrationPage(QWidget):
         if self._current_step == 1:
             return {"text": "Back", "style": "default", "enabled": True}
         elif self._current_step == 2:
-            # On results page, can't go back (already installed)
-            return {"text": "Back", "style": "default", "enabled": False}
+            # On results page, allow back if there were errors
+            has_errors = any(not success for success, _ in self._install_results.values())
+            return {"text": "Back", "style": "default", "enabled": has_errors}
         else:
             return {"text": "Back", "style": "default", "enabled": True}
 
@@ -5128,7 +5127,12 @@ class IntegrationPage(QWidget):
         if self._current_step == 1:
             self._go_to_step(0)
             return True
-        # Can't go back from results (step 2)
+        elif self._current_step == 2:
+            # Allow going back from results if there were errors
+            has_errors = any(not success for success, _ in self._install_results.values())
+            if has_errors:
+                self._go_to_step(1)
+                return True
         return False
 
     def _go_to_step(self, step: int):

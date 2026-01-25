@@ -1518,257 +1518,31 @@ def download_database(dest_dir: Path, provider: str) -> bool:
 #  MCP Client Integration
 # ============================================================================
 
-# Supported MCP clients and their configurations
-MCP_CLIENTS = {
-    "claude_code": {
-        "name": "Claude Code",
-        "description": "Anthropic's CLI tool for Claude",
-        "config_type": "json",
-    },
-    "vscode": {
-        "name": "VS Code / GitHub Copilot",
-        "description": "Works with Copilot in Agent mode (VS Code 1.102+)",
-        "config_type": "vscode",
-    },
-    "cursor": {
-        "name": "Cursor",
-        "description": "AI-first code editor",
-        "config_type": "cursor",
-    },
-    "windsurf": {
-        "name": "Windsurf",
-        "description": "Codeium's AI code editor",
-        "config_type": "json",
-    },
-    "codex": {
-        "name": "Codex CLI",
-        "description": "OpenAI's command-line coding tool",
-        "config_type": "toml",
-    },
-    "jetbrains": {
-        "name": "JetBrains IDEs (IntelliJ, Rider, etc.)",
-        "description": "GitHub Copilot in JetBrains IDEs",
-        "config_type": "json",
-    },
-}
-
-
-def get_mcp_command_stdio(script_dir: Path) -> dict:
-    """Generate the MCP server command for stdio-based clients."""
-    system = platform.system()
-
-    if system == "Windows":
-        cmd = (
-            f"Set-Location '{script_dir}'; "
-            "Get-Content .env | ForEach-Object { "
-            "if ($_ -match '^([^=]+)=(.*)$') { "
-            "[Environment]::SetEnvironmentVariable($matches[1], $matches[2]) "
-            "} }; "
-            "npx tsx src/index.ts"
-        )
-        return {
-            "type": "stdio",
-            "command": "powershell",
-            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
-            "env": {"HYTALE_RAG_MODE": "mcp"}
-        }
-    else:
-        cmd = f"cd '{script_dir}' && set -a && source .env && set +a && npx tsx src/index.ts"
-        return {
-            "type": "stdio",
-            "command": "bash",
-            "args": ["-c", cmd],
-            "env": {"HYTALE_RAG_MODE": "mcp"}
-        }
-
-
-def get_mcp_command_simple(script_dir: Path) -> dict:
-    """Generate a simpler MCP command for VS Code/Cursor (they handle env differently)."""
-    system = platform.system()
-
-    if system == "Windows":
-        return {
-            "type": "stdio",
-            "command": "powershell",
-            "args": [
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-File", str(script_dir / "start-mcp.ps1")
-            ]
-        }
-    else:
-        return {
-            "type": "stdio",
-            "command": "bash",
-            "args": [str(script_dir / "start-mcp.sh")]
-        }
-
-
-def check_powershell_execution_policy() -> tuple[bool, str]:
-    """
-    Check if PowerShell scripts can be executed.
-    Returns (can_execute, policy_name).
-    """
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", "Get-ExecutionPolicy"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        policy = result.stdout.strip().lower()
-
-        # These policies allow script execution
-        allowed_policies = ["unrestricted", "remotesigned", "bypass", "allsigned"]
-        can_execute = policy in allowed_policies
-
-        return can_execute, result.stdout.strip()
-    except Exception:
-        return False, "Unknown"
-
-
-def verify_powershell_bypass() -> bool:
-    """
-    Test if -ExecutionPolicy Bypass actually works (some enterprise policies block it).
-    Returns True if bypass works.
-    """
-    try:
-        # Create a temp script and try to run it with bypass
-        test_script = Path.home() / ".hytale-ps-test.ps1"
-        test_script.write_text("Write-Output 'OK'")
-
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(test_script)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-
-        test_script.unlink(missing_ok=True)
-        return "OK" in result.stdout
-    except Exception:
-        return False
+# Import shared MCP configuration functions
+from mcp_config import (
+    MCP_CLIENTS,
+    get_mcp_command_stdio,
+    get_mcp_command_simple,
+    create_start_scripts as _create_start_scripts,
+    setup_claude_code,
+    setup_vscode as _setup_vscode_base,
+    setup_cursor as _setup_cursor_base,
+    setup_windsurf,
+    setup_codex,
+    setup_jetbrains,
+    get_vscode_user_settings_path,
+    get_cursor_user_settings_path,
+    get_client_config_path,
+)
 
 
 def create_start_scripts(script_dir: Path):
-    """Create helper scripts for starting the MCP server."""
-    system = platform.system()
-
-    if system == "Windows":
-        # Check PowerShell execution policy
-        can_execute, policy = check_powershell_execution_policy()
-
-        if not can_execute:
-            print()
-            print(f"    NOTE: Your PowerShell execution policy is '{policy}'.")
-            print("    The MCP config uses '-ExecutionPolicy Bypass' which should work,")
-            print("    but if you encounter issues, you may need to run:")
-            print()
-            print("      Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser")
-            print()
-
-            # Test if bypass actually works
-            if not verify_powershell_bypass():
-                print("    WARNING: ExecutionPolicy Bypass appears to be blocked.")
-                print("    This may be an enterprise policy restriction.")
-                print("    Contact your IT administrator if scripts fail to run.")
-                print()
-
-        ps1_path = script_dir / "start-mcp.ps1"
-        ps1_content = f"""# Hytale RAG MCP Server Startup Script
-Set-Location '{script_dir}'
-Get-Content .env | ForEach-Object {{
-    if ($_ -match '^([^=]+)=(.*)$') {{
-        [Environment]::SetEnvironmentVariable($matches[1], $matches[2])
-    }}
-}}
-$env:HYTALE_RAG_MODE = "mcp"
-npx tsx src/index.ts
-"""
-        ps1_path.write_text(ps1_content)
-        print(f"    Created {ps1_path}")
-    else:
-        sh_path = script_dir / "start-mcp.sh"
-        sh_content = f"""#!/bin/bash
-# Hytale RAG MCP Server Startup Script
-cd '{script_dir}'
-set -a
-source .env
-set +a
-export HYTALE_RAG_MODE=mcp
-npx tsx src/index.ts
-"""
-        sh_path.write_text(sh_content)
-        sh_path.chmod(0o755)
-        print(f"    Created {sh_path}")
-
-
-def get_vscode_user_settings_path() -> Path:
-    """Get the path to VS Code's user settings.json."""
-    system = platform.system()
-    if system == "Windows":
-        return Path(os.environ.get("APPDATA", "")) / "Code" / "User" / "settings.json"
-    elif system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "Code" / "User" / "settings.json"
-    else:
-        return Path.home() / ".config" / "Code" / "User" / "settings.json"
-
-
-def get_cursor_user_settings_path() -> Path:
-    """Get the path to Cursor's user settings.json."""
-    system = platform.system()
-    if system == "Windows":
-        return Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "settings.json"
-    elif system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "Cursor" / "User" / "settings.json"
-    else:
-        return Path.home() / ".config" / "Cursor" / "User" / "settings.json"
-
-
-def get_client_config_path(client_id: str) -> Path | None:
-    """Get the config file path for a given MCP client."""
-    home = Path.home()
-
-    paths = {
-        "claude_code": home / ".claude.json",
-        "windsurf": home / ".codeium" / "windsurf" / "mcp_config.json",
-        "codex": home / ".codex" / "config.toml",
-        "cursor": get_cursor_user_settings_path(),
-        "vscode": get_vscode_user_settings_path(),
-        "jetbrains": home / ".config" / "github-copilot" / "intellij" / "mcp.json",
-    }
-    return paths.get(client_id)
-
-
-def setup_claude_code(script_dir: Path) -> bool:
-    """Configure Claude Code MCP server."""
-    config_path = Path.home() / ".claude.json"
-    mcp_config = get_mcp_command_stdio(script_dir)
-
-    if config_path.exists():
-        try:
-            config = json.loads(config_path.read_text(encoding='utf-8'))
-        except json.JSONDecodeError:
-            config = {}
-    else:
-        config = {}
-
-    if "mcpServers" not in config:
-        config["mcpServers"] = {}
-
-    config["mcpServers"]["hytale-rag"] = mcp_config
-    config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-
-    print(f"    Added 'hytale-rag' to {config_path}")
-    return True
+    """Create helper scripts for starting the MCP server (CLI wrapper with output)."""
+    _create_start_scripts(script_dir, quiet=False)
 
 
 def setup_vscode(script_dir: Path) -> bool:
-    """Configure VS Code / GitHub Copilot MCP server."""
-    mcp_config = get_mcp_command_simple(script_dir)
-    # VS Code's mcp.json format doesn't use "type" field - remove it
-    mcp_config.pop("type", None)
-
+    """Configure VS Code / GitHub Copilot MCP server (CLI version with prompts)."""
     # Ask user about installation scope
     print()
     print("    VS Code MCP Configuration:")
@@ -1778,53 +1552,14 @@ def setup_vscode(script_dir: Path) -> bool:
         ("Workspace only", "Only works when this specific folder is open.\nConfig stored in .vscode/mcp.json"),
     ]
     scope_choice = prompt_choice(scope_options, "Installation scope")
+    scope = "global" if scope_choice == 0 else "workspace"
 
-    if scope_choice == 0:
-        # Global installation - add to user settings.json
-        config_path = get_vscode_user_settings_path()
-        config_path.parent.mkdir(parents=True, exist_ok=True)
+    result = _setup_vscode_base(script_dir, scope=scope, quiet=False)
 
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text(encoding='utf-8'))
-            except json.JSONDecodeError:
-                config = {}
-        else:
-            config = {}
-
-        # VS Code uses nested "mcp" -> "servers" in user settings
-        if "mcp" not in config:
-            config["mcp"] = {}
-        if "servers" not in config["mcp"]:
-            config["mcp"]["servers"] = {}
-
-        config["mcp"]["servers"]["hytale-rag"] = mcp_config
-        config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-
-        print(f"    Added 'hytale-rag' to {config_path}")
+    if scope == "global":
         print()
         print("    The MCP server is now available globally in VS Code.")
     else:
-        # Workspace installation - create .vscode/mcp.json
-        vscode_dir = REPO_ROOT / ".vscode"
-        vscode_dir.mkdir(exist_ok=True)
-        config_path = vscode_dir / "mcp.json"
-
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text(encoding='utf-8'))
-            except json.JSONDecodeError:
-                config = {}
-        else:
-            config = {}
-
-        if "servers" not in config:
-            config["servers"] = {}
-
-        config["servers"]["hytale-rag"] = mcp_config
-        config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-
-        print(f"    Added 'hytale-rag' to {config_path}")
         print()
         print("    NOTE: This only works when this folder is open in VS Code.")
 
@@ -1833,13 +1568,11 @@ def setup_vscode(script_dir: Path) -> bool:
     print("      1. Open VS Code 1.102+")
     print("      2. Enable Copilot Agent mode")
     print("      3. The MCP server will be available automatically")
-    return True
+    return result
 
 
 def setup_cursor(script_dir: Path) -> bool:
-    """Configure Cursor MCP server."""
-    mcp_config = get_mcp_command_simple(script_dir)
-
+    """Configure Cursor MCP server (CLI version with prompts)."""
     # Ask user about installation scope
     print()
     print("    Cursor MCP Configuration:")
@@ -1849,51 +1582,14 @@ def setup_cursor(script_dir: Path) -> bool:
         ("Workspace only", "Only works when this specific folder is open.\nConfig stored in .cursor/mcp.json"),
     ]
     scope_choice = prompt_choice(scope_options, "Installation scope")
+    scope = "global" if scope_choice == 0 else "workspace"
 
-    if scope_choice == 0:
-        # Global installation - add to user settings.json
-        config_path = get_cursor_user_settings_path()
-        config_path.parent.mkdir(parents=True, exist_ok=True)
+    result = _setup_cursor_base(script_dir, scope=scope, quiet=False)
 
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text(encoding='utf-8'))
-            except json.JSONDecodeError:
-                config = {}
-        else:
-            config = {}
-
-        # Cursor uses "mcpServers" in user settings
-        if "mcpServers" not in config:
-            config["mcpServers"] = {}
-
-        config["mcpServers"]["hytale-rag"] = mcp_config
-        config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-
-        print(f"    Added 'hytale-rag' to {config_path}")
+    if scope == "global":
         print()
         print("    The MCP server is now available globally in Cursor.")
     else:
-        # Workspace installation - create .cursor/mcp.json
-        cursor_dir = REPO_ROOT / ".cursor"
-        cursor_dir.mkdir(exist_ok=True)
-        config_path = cursor_dir / "mcp.json"
-
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text(encoding='utf-8'))
-            except json.JSONDecodeError:
-                config = {}
-        else:
-            config = {}
-
-        if "mcpServers" not in config:
-            config["mcpServers"] = {}
-
-        config["mcpServers"]["hytale-rag"] = mcp_config
-        config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-
-        print(f"    Added 'hytale-rag' to {config_path}")
         print()
         print("    NOTE: This only works when this folder is open in Cursor.")
 
@@ -1901,109 +1597,7 @@ def setup_cursor(script_dir: Path) -> bool:
     print("    To use the MCP server:")
     print("      1. Restart Cursor (or reload the window)")
     print("      2. The hytale-rag tools will be available in chat")
-    return True
-
-
-def setup_windsurf(script_dir: Path) -> bool:
-    """Configure Windsurf MCP server."""
-    config_dir = Path.home() / ".codeium" / "windsurf"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "mcp_config.json"
-
-    mcp_config = get_mcp_command_simple(script_dir)
-
-    if config_path.exists():
-        try:
-            config = json.loads(config_path.read_text(encoding='utf-8'))
-        except json.JSONDecodeError:
-            config = {}
-    else:
-        config = {}
-
-    if "mcpServers" not in config:
-        config["mcpServers"] = {}
-
-    config["mcpServers"]["hytale-rag"] = mcp_config
-    config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-
-    print(f"    Added 'hytale-rag' to {config_path}")
-    return True
-
-
-def setup_codex(script_dir: Path) -> bool:
-    """Configure Codex CLI MCP server."""
-    config_dir = Path.home() / ".codex"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.toml"
-
-    system = platform.system()
-
-    # Read existing config or create new
-    existing_content = ""
-    if config_path.exists():
-        existing_content = config_path.read_text(encoding='utf-8')
-
-    # Check if hytale-rag already configured
-    if "[mcp_servers.hytale-rag]" in existing_content:
-        print(f"    'hytale-rag' already configured in {config_path}")
-        return True
-
-    # Generate the TOML config
-    if system == "Windows":
-        start_script = str(script_dir / "start-mcp.ps1").replace("\\", "\\\\")
-        toml_entry = f'''
-[mcp_servers.hytale-rag]
-command = "powershell"
-args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "{start_script}"]
-'''
-    else:
-        start_script = str(script_dir / "start-mcp.sh")
-        toml_entry = f'''
-[mcp_servers.hytale-rag]
-command = "bash"
-args = ["{start_script}"]
-'''
-
-    # Append to config
-    with open(config_path, "a", encoding='utf-8') as f:
-        f.write(toml_entry)
-
-    print(f"    Added 'hytale-rag' to {config_path}")
-    return True
-
-
-def setup_jetbrains(script_dir: Path) -> bool:
-    """Configure GitHub Copilot MCP server for JetBrains IDEs (IntelliJ, Rider, etc.)."""
-    # GitHub Copilot in JetBrains uses ~/.config/github-copilot/intellij/mcp.json
-    config_dir = Path.home() / ".config" / "github-copilot" / "intellij"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "mcp.json"
-
-    mcp_config = get_mcp_command_simple(script_dir)
-    # Remove "type" field - not needed for this format
-    mcp_config.pop("type", None)
-
-    if config_path.exists():
-        try:
-            config = json.loads(config_path.read_text(encoding='utf-8'))
-        except json.JSONDecodeError:
-            config = {}
-    else:
-        config = {}
-
-    if "servers" not in config:
-        config["servers"] = {}
-
-    config["servers"]["hytale-rag"] = mcp_config
-    config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-
-    print(f"    Added 'hytale-rag' to {config_path}")
-    print()
-    print("    To use with GitHub Copilot in JetBrains IDEs:")
-    print("      1. Ensure GitHub Copilot plugin is installed")
-    print("      2. Restart your IDE (or reload the project)")
-    print("      3. The hytale-rag tools will be available in Copilot chat")
-    return True
+    return result
 
 
 def prompt_multi_choice(options: list[tuple[str, str]], prompt_text: str = "Select options") -> list[int]:
