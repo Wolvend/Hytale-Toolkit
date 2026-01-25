@@ -20,8 +20,16 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
 ENV_FILE = SCRIPT_DIR / ".env"
-DECOMPILED_DIR = REPO_ROOT / "decompiled"  # Always in repo root
 OLLAMA_MODEL = "nomic-embed-text"
+
+
+def get_decompiled_dir(env: dict) -> Path:
+    """Get decompiled directory from .env or default to repo root."""
+    # Check .env first (set by GUI installer)
+    if env.get("HYTALE_DECOMPILED_DIR"):
+        return Path(env["HYTALE_DECOMPILED_DIR"])
+    # Fallback to repo root
+    return REPO_ROOT / "decompiled"
 
 
 def load_env() -> dict[str, str]:
@@ -308,6 +316,7 @@ def main():
     env = load_env()
     install_path = env.get("HYTALE_INSTALL_PATH", "")
     voyage_key = env.get("VOYAGE_API_KEY", "")
+    decompiled_dir = get_decompiled_dir(env)
 
     # Validate install path
     if not install_path:
@@ -316,9 +325,9 @@ def main():
         return 1
 
     # Check for decompiled source
-    if not DECOMPILED_DIR.exists() or not any(DECOMPILED_DIR.iterdir()):
+    if not decompiled_dir.exists() or not any(decompiled_dir.iterdir()):
         print("  ERROR: No decompiled source code found.")
-        print(f"  Expected at: {DECOMPILED_DIR}")
+        print(f"  Expected at: {decompiled_dir}")
         print()
         print("  Run setup.py and select 'Yes' for decompilation.")
         return 1
@@ -329,7 +338,7 @@ def main():
     assets_zip = install_path / "Assets.zip"
 
     print("  Configuration:")
-    print(f"    Decompiled code: {DECOMPILED_DIR}")
+    print(f"    Decompiled code: {decompiled_dir}")
     print(f"    Client data:     {client_data}")
     print(f"    Assets zip:      {assets_zip}")
     print()
@@ -390,7 +399,7 @@ def main():
     # =========================================================================
 
     # Define data sources
-    sources = [("Server Code", "src/ingest.ts", [str(DECOMPILED_DIR)])]
+    sources = [("Server Code", "src/ingest.ts", [str(decompiled_dir)])]
     if client_data.exists():
         sources.append(("Client UI", "src/ingest-client.ts", [str(client_data)]))
     if assets_zip.exists():

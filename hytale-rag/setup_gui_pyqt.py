@@ -18,6 +18,7 @@ __version__ = _version_file.read_text().strip() if _version_file.exists() else "
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import shutil
@@ -111,6 +112,9 @@ def get_icon_path(name: str) -> Path | None:
 GITHUB_REPO = "logan-mcduffie/Hytale-Toolkit"
 RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
+
+# CDN for database downloads
+CDN_BASE_URL = "https://cdn.loganmcduffie.com"
 
 
 def compare_versions(current: str, latest: str) -> int:
@@ -3788,6 +3792,11 @@ class DatabasePage(QWidget):
         size_label.setStyleSheet("font-size: 11px; color: #22C55E; font-weight: bold; background: transparent;")
         card_layout.addWidget(size_label)
 
+        # Hytale version label (populated dynamically)
+        self.version_label = QLabel("Hytale Version: Loading...")
+        self.version_label.setStyleSheet("font-size: 11px; color: #888888; background: transparent;")
+        card_layout.addWidget(self.version_label)
+
         card_layout.addSpacing(8)
 
         # Feature list
@@ -3818,10 +3827,17 @@ class DatabasePage(QWidget):
         existing_layout.setContentsMargins(0, 0, 0, 0)
         existing_layout.setSpacing(10)
 
-        existing_label = QLabel("✓ Existing database found")
-        existing_label.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 13px; font-weight: bold; color: #22C55E;")
-        existing_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        existing_layout.addWidget(existing_label)
+        self.existing_label = QLabel("✓ Existing database found")
+        self.existing_label.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 13px; font-weight: bold; color: #22C55E;")
+        self.existing_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        existing_layout.addWidget(self.existing_label)
+
+        # Update available warning (hidden by default)
+        self.update_warning_label = QLabel("")
+        self.update_warning_label.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; font-weight: bold; color: #F59E0B;")
+        self.update_warning_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.update_warning_label.hide()
+        existing_layout.addWidget(self.update_warning_label)
 
         # Option buttons
         options_container = QWidget()
@@ -3977,6 +3993,9 @@ class DatabasePage(QWidget):
             else:
                 self._has_existing = False
                 self.existing_options.hide()
+
+        # Update version display (fetches from CDN)
+        self._update_version_display()
 
         if self._button_callback:
             self._button_callback()
@@ -4264,6 +4283,63 @@ sys.exit(0 if success else 1)
         self._state = "idle"
         self.progress_label.setStyleSheet("font-size: 12px; color: #888888;")
         self.start_download()
+
+    def _fetch_latest_version(self) -> str | None:
+        """Fetch the latest available database version from CDN manifest."""
+        manifest_url = f"{CDN_BASE_URL}/db/manifest.json"
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            req = urllib.request.Request(manifest_url, headers={"User-Agent": "Hytale-Toolkit"})
+            with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
+                manifest = json.loads(response.read().decode())
+            return manifest.get("latest")
+        except Exception:
+            return None
+
+    def _get_installed_version(self) -> str | None:
+        """Get the installed database version from .version file."""
+        if not self._toolkit_path or not self._provider:
+            return None
+        version_file = Path(self._toolkit_path) / "hytale-rag" / "data" / self._provider / ".version"
+        if version_file.exists():
+            try:
+                return version_file.read_text().strip()
+            except Exception:
+                pass
+        return None
+
+    def _update_version_display(self):
+        """Update the version labels with latest and installed versions."""
+        # Fetch latest version from CDN
+        latest = self._fetch_latest_version()
+        installed = self._get_installed_version()
+
+        # Update main card version label
+        if latest:
+            self.version_label.setText(f"Hytale Version: {latest}")
+            self.version_label.setStyleSheet("font-size: 11px; color: #888888; background: transparent;")
+        else:
+            self.version_label.setText("Hytale Version: Unable to fetch")
+            self.version_label.setStyleSheet("font-size: 11px; color: #666666; background: transparent;")
+
+        # Update existing database label with installed version
+        if self._has_existing and installed:
+            self.existing_label.setText(f"✓ Existing database found (Hytale {installed})")
+            self.existing_label.setStyleSheet(
+                "font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 13px; font-weight: bold; color: #22C55E;"
+            )
+            # Check if update is available - show warning in separate label
+            if latest and installed != latest:
+                self.update_warning_label.setText(f"⚠ Update available: {latest}")
+                self.update_warning_label.show()
+            else:
+                self.update_warning_label.hide()
+        elif self._has_existing:
+            self.existing_label.setText("✓ Existing database found")
+            self.update_warning_label.hide()
 
 
 def check_node_installed() -> tuple[bool, str]:
