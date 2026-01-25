@@ -15,6 +15,7 @@ else:
     _version_file = _Path(__file__).parent.parent / "VERSION"
 __version__ = _version_file.read_text().strip() if _version_file.exists() else "0.0.0"
 
+import ctypes
 import json
 import os
 import re
@@ -5693,6 +5694,134 @@ class CLIToolsPage(QWidget):
         # Run pip install
         self._run_pip_install()
 
+    def _add_scripts_to_path(self) -> tuple[bool, str]:
+        """Add Python Scripts directory to user PATH on Windows.
+
+        Returns:
+            Tuple of (success, message) where message describes what happened.
+        """
+        if sys.platform != "win32":
+            return False, "PATH modification only supported on Windows"
+
+        try:
+            import winreg
+
+            # Find the Python Scripts directory
+            # pip installs to: %APPDATA%\Python\PythonXX\Scripts (user install)
+            # or: %LOCALAPPDATA%\Programs\Python\PythonXX\Scripts
+            scripts_dirs = []
+
+            # Check common locations for user-installed Python scripts
+            appdata = os.environ.get("APPDATA", "")
+            localappdata = os.environ.get("LOCALAPPDATA", "")
+
+            if appdata:
+                # User pip install location
+                python_roaming = Path(appdata) / "Python"
+                if python_roaming.exists():
+                    for py_dir in python_roaming.iterdir():
+                        if py_dir.is_dir() and py_dir.name.startswith("Python"):
+                            scripts = py_dir / "Scripts"
+                            if scripts.exists() and (scripts / "hytale-mod.exe").exists():
+                                scripts_dirs.append(str(scripts))
+
+            if localappdata:
+                # Standard Python installation Scripts
+                python_local = Path(localappdata) / "Programs" / "Python"
+                if python_local.exists():
+                    for py_dir in python_local.iterdir():
+                        if py_dir.is_dir() and py_dir.name.startswith("Python"):
+                            scripts = py_dir / "Scripts"
+                            if scripts.exists() and (scripts / "hytale-mod.exe").exists():
+                                scripts_dirs.append(str(scripts))
+
+            # Also check the current Python's Scripts directory
+            if hasattr(sys, 'base_prefix'):
+                base_scripts = Path(sys.base_prefix) / "Scripts"
+                if base_scripts.exists() and (base_scripts / "hytale-mod.exe").exists():
+                    scripts_dirs.append(str(base_scripts))
+
+            # Find the first scripts dir that has hytale-mod.exe
+            if not scripts_dirs:
+                # Fallback: run pip show to find where it was installed
+                try:
+                    result = subprocess.run(
+                        ["pip", "show", "-f", "hytale-mod"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if result.returncode == 0:
+                        # Parse the Location line
+                        for line in result.stdout.split("\n"):
+                            if line.startswith("Location:"):
+                                location = line.split(":", 1)[1].strip()
+                                # Scripts is usually at same level as site-packages
+                                scripts = Path(location).parent / "Scripts"
+                                if scripts.exists():
+                                    scripts_dirs.append(str(scripts))
+                                break
+                except Exception:
+                    pass
+
+            if not scripts_dirs:
+                return False, "Could not find Python Scripts directory"
+
+            scripts_dir = scripts_dirs[0]
+
+            # Get current user PATH from registry
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Environment",
+                    0,
+                    winreg.KEY_READ | winreg.KEY_WRITE
+                ) as key:
+                    try:
+                        current_path, _ = winreg.QueryValueEx(key, "Path")
+                    except WindowsError:
+                        current_path = ""
+
+                    # Check if scripts_dir is already in PATH (case-insensitive)
+                    path_entries = [p.strip().lower() for p in current_path.split(";") if p.strip()]
+                    if scripts_dir.lower() in path_entries:
+                        return True, f"Scripts directory already in PATH: {scripts_dir}"
+
+                    # Add scripts_dir to PATH
+                    if current_path:
+                        new_path = f"{current_path};{scripts_dir}"
+                    else:
+                        new_path = scripts_dir
+
+                    winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
+
+            except WindowsError as e:
+                return False, f"Failed to update registry: {e}"
+
+            # Broadcast WM_SETTINGCHANGE so new terminals pick up the change
+            try:
+                HWND_BROADCAST = 0xFFFF
+                WM_SETTINGCHANGE = 0x001A
+                SMTO_ABORTIFHUNG = 0x0002
+
+                result = ctypes.c_long()
+                ctypes.windll.user32.SendMessageTimeoutW(
+                    HWND_BROADCAST,
+                    WM_SETTINGCHANGE,
+                    0,
+                    "Environment",
+                    SMTO_ABORTIFHUNG,
+                    5000,
+                    ctypes.byref(result)
+                )
+            except Exception:
+                pass  # Non-critical, new terminals will still work
+
+            return True, f"Added to PATH: {scripts_dir}"
+
+        except Exception as e:
+            return False, f"Failed to update PATH: {e}"
+
     def _run_pip_install(self):
         """Run pip install for the CLI tool."""
         cli_path = "hytale-mod-cli"
@@ -5775,7 +5904,22 @@ class CLIToolsPage(QWidget):
             self.status_label.setText(f"✓ CLI tools {action} successfully!")
             self.status_label.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; color: #22C55E; font-size: 11px; font-weight: bold;")
             self.terminal.appendPlainText(f"\n✓ Installation complete!")
-            self.terminal.appendPlainText("You can now run: hytale-mod init <project-name>")
+
+            # Automatically add Scripts directory to PATH on Windows
+            if sys.platform == "win32":
+                self.terminal.appendPlainText("\nConfiguring PATH...")
+                success, message = self._add_scripts_to_path()
+                if success:
+                    if "already in PATH" in message:
+                        self.terminal.appendPlainText(f"✓ {message}")
+                    else:
+                        self.terminal.appendPlainText(f"✓ {message}")
+                        self.terminal.appendPlainText("Note: Open a new terminal for the PATH change to take effect.")
+                else:
+                    self.terminal.appendPlainText(f"⚠ {message}")
+                    self.terminal.appendPlainText("You may need to add the Python Scripts directory to your PATH manually.")
+
+            self.terminal.appendPlainText("\nYou can now run: hytale-mod init <project-name>")
         else:
             self._state = "failed"
             self.progress.setRange(0, 100)
