@@ -5,6 +5,12 @@ All notable changes to Hytale Toolkit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2025-01-25
+
+### Fixed
+- Database download now uses inline CDN logic instead of importing from toolkit path
+- Fixes "Could not find lancedb in latest release" error when toolkit has old setup.py
+
 ## [1.0.5] - 2025-01-25
 
 ### Added

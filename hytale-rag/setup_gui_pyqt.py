@@ -4169,17 +4169,91 @@ class DatabasePage(QWidget):
         else:
             python_cmd = sys.executable
 
-        # Use toolkit path to find setup.py (not the bundle's temp directory)
-        hytale_rag_dir = toolkit_path / "hytale-rag"
-
-        # Run the setup.py download_database function via Python
+        # Inline download script - doesn't depend on external setup.py
+        # This ensures we always use CDN, even if toolkit has old code
         script = f'''
+import json
+import ssl
 import sys
-sys.path.insert(0, r"{hytale_rag_dir}")
-from setup import download_database
+import tarfile
+import urllib.request
 from pathlib import Path
-success = download_database(Path(r"{provider_dir}"), "{self._provider}")
-sys.exit(0 if success else 1)
+
+CDN_BASE_URL = "https://cdn.loganmcduffie.com"
+provider = "{self._provider}"
+dest_dir = Path(r"{provider_dir}")
+
+dest_dir.mkdir(parents=True, exist_ok=True)
+asset_name = f"lancedb-{{provider}}-all.tar.gz"
+tarball_path = dest_dir / asset_name
+manifest_url = f"{{CDN_BASE_URL}}/db/manifest.json"
+
+print("Fetching latest release info...")
+try:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    req = urllib.request.Request(manifest_url, headers={{"User-Agent": "Hytale-Toolkit"}})
+    with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+        manifest = json.loads(response.read().decode())
+
+    latest_version = manifest.get("latest")
+    if not latest_version:
+        print("ERROR: No latest version found in manifest.")
+        sys.exit(1)
+
+    download_url = f"{{CDN_BASE_URL}}/db/{{latest_version}}/{{asset_name}}"
+    print(f"Latest version: {{latest_version}}")
+except Exception as e:
+    print(f"ERROR: Failed to fetch version info: {{e}}")
+    sys.exit(1)
+
+print(f"Downloading {{asset_name}}...")
+try:
+    req = urllib.request.Request(download_url, headers={{"User-Agent": "Hytale-Toolkit"}})
+    with urllib.request.urlopen(req, context=ctx, timeout=300) as response:
+        total_size = int(response.headers.get("Content-Length", 0))
+        downloaded = 0
+        block_size = 8192
+
+        with open(tarball_path, "wb") as f:
+            while True:
+                chunk = response.read(block_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+
+                if total_size > 0:
+                    percent = min(100, downloaded * 100 / total_size)
+                    mb_down = downloaded / (1024 * 1024)
+                    mb_total = total_size / (1024 * 1024)
+                    print(f"\\rDownload: {{percent:.1f}}% ({{mb_down:.1f}}/{{mb_total:.1f}} MB)", end="", flush=True)
+    print()
+except Exception as e:
+    print(f"\\nERROR: Download failed: {{e}}")
+    sys.exit(1)
+
+print("Extracting database...")
+try:
+    with tarfile.open(tarball_path, "r:gz") as tar:
+        tar.extractall(path=dest_dir)
+    tarball_path.unlink()
+    print("Extraction complete!")
+except Exception as e:
+    print(f"ERROR: Extraction failed: {{e}}")
+    sys.exit(1)
+
+# Save version file
+version_file = dest_dir / ".version"
+try:
+    version_file.write_text(latest_version)
+except Exception:
+    pass
+
+print("Database download successful!")
+sys.exit(0)
 '''
         self._process.start(python_cmd, ["-c", script])
 
