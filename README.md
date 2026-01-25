@@ -6,7 +6,7 @@
 
 *Searchable docs • AI-powered code search • Ready-to-use templates*
 
-[![Java](https://img.shields.io/badge/Java-24-orange?style=flat-square&logo=openjdk)](https://openjdk.org/)
+[![Java](https://img.shields.io/badge/Java-25-orange?style=flat-square&logo=openjdk)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 [![Wiki](https://img.shields.io/badge/Docs-Wiki-green?style=flat-square&logo=github)](https://github.com/logan-mcduffie/Hytale-Toolkit/wiki)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/WzPC6pXpqk)
@@ -97,9 +97,6 @@ npx tsx src/search.ts --stats
 ```bash
 hytale-mod init
 ```
-
-The wizard will guide you through creating a new mod project with Gradle, IDE support, and a starter plugin class.
-
 <div align="center">
 <sub>This toolkit is for educational and modding purposes. Hytale is a trademark of Hypixel Studios.</sub>
 </div>
