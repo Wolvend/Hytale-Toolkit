@@ -31,13 +31,15 @@ from pathlib import Path
 
 
 def get_base_path() -> Path:
-    """Get the base path for resources, handling both normal and frozen (PyInstaller) execution."""
+    """Get the base path for the toolkit, handling both normal and frozen (PyInstaller) execution."""
     if getattr(sys, 'frozen', False):
         # Running as compiled executable
         return Path(sys.executable).parent
     else:
-        # Running as installed package - use current working directory
-        return Path.cwd()
+        # Running as installed package - find toolkit root relative to this file
+        # cli.py is at: {toolkit}/hytale-mod-cli/hytale_mod/cli.py
+        # So toolkit root is 3 levels up
+        return Path(__file__).parent.parent.parent
 
 
 # Simple logging setup for the CLI package

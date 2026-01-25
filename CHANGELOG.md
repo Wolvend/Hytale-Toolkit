@@ -5,6 +5,13 @@ All notable changes to Hytale Toolkit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2025-01-25
+
+### Fixed
+- Maven projects now use toolkit's JDK path instead of system PATH for `run-server`
+- `hytale-mod init` embeds detected JDK path in generated `pom.xml`
+- Fixes "java not found" errors when system PATH has broken/missing Java
+
 ## [1.0.7] - 2025-01-25
 
 ### Added
