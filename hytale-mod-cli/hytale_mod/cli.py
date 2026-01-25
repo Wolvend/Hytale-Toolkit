@@ -77,6 +77,9 @@ GRADLE_WRAPPER_URL = f"https://services.gradle.org/distributions/gradle-{GRADLE_
 MAVEN_VERSION = "3.9.9"
 MAVEN_WRAPPER_VERSION = "3.3.2"
 
+# Kotlin version (for Kotlin projects)
+KOTLIN_VERSION = "2.1.0"
+
 # License templates
 LICENSES = {
     "MIT": """MIT License
@@ -566,6 +569,39 @@ public class {class_name} extends JavaPlugin {{
 '''
 
 
+def generate_main_class_kotlin(mod_config: dict) -> str:
+    """Generate the main plugin Kotlin class."""
+    package = f"{mod_config['group']}.{mod_config['name'].replace('-', '')}"
+    class_name = mod_config['main_class']
+
+    return f'''package {package}
+
+import com.hypixel.hytale.server.core.plugin.JavaPlugin
+import com.hypixel.hytale.server.core.plugin.JavaPluginInit
+import java.util.logging.Level
+
+/**
+ * Main entry point for the {mod_config['display_name']} plugin.
+ */
+class {class_name}(init: JavaPluginInit) : JavaPlugin(init) {{
+
+    override fun setup() {{
+        // Called during plugin setup phase
+    }}
+
+    override fun start() {{
+        // Called when the plugin is enabled
+        logger.at(Level.INFO).log("{mod_config['display_name']} has been enabled!")
+    }}
+
+    override fun shutdown() {{
+        // Called when the plugin is disabled
+        logger.at(Level.INFO).log("{mod_config['display_name']} has been disabled!")
+    }}
+}}
+'''
+
+
 def generate_manifest(mod_config: dict) -> dict:
     """Generate the manifest.json content."""
     manifest = {
@@ -589,9 +625,51 @@ def generate_manifest(mod_config: dict) -> dict:
     return manifest
 
 
-def generate_build_gradle(mod_config: dict) -> str:
+def generate_build_gradle(mod_config: dict, language: str = "java") -> str:
     """Generate build.gradle.kts content."""
-    return f'''plugins {{
+    if language == "kotlin":
+        return f'''plugins {{
+    kotlin("jvm") version "{KOTLIN_VERSION}"
+    id("com.github.johnrengelman.shadow") version "8.1.1"
+    id("app.ultradev.hytalegradle") version "1.6.7"
+}}
+
+group = "{mod_config['group']}"
+version = "{mod_config['version']}"
+
+kotlin {{
+    jvmToolchain(24)
+}}
+
+repositories {{
+    mavenCentral()
+}}
+
+dependencies {{
+    // HytaleServer.jar - provided at runtime by the server
+    compileOnly(files("${{property("hytaleInstallPath")}}/Server/HytaleServer.jar"))
+
+    // Kotlin standard library
+    implementation(kotlin("stdlib"))
+
+    // Add your dependencies here
+    // implementation("com.example:library:1.0.0")
+}}
+
+hytale {{
+    // Enable operator privileges for testing
+    allowOp.set(true)
+
+    // Use release patchline (options: "release", "pre-release")
+    patchline.set("release")
+}}
+
+tasks.shadowJar {{
+    archiveClassifier.set("")
+}}
+'''
+    else:
+        return f'''plugins {{
     id("java")
     id("com.github.johnrengelman.shadow") version "8.1.1"
     id("app.ultradev.hytalegradle") version "1.6.7"
@@ -670,34 +748,22 @@ org.gradle.java.home={jdk24_normalized}
     return content
 
 
-def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str) -> str:
+def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str, language: str = "java") -> str:
     """Generate pom.xml content for Maven projects."""
     hytale_path_normalized = hytale_path.replace("\\", "/")
     toolkit_path_normalized = toolkit_path.replace("\\", "/")
 
-    return f'''<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-
-    <groupId>{mod_config['group']}</groupId>
-    <artifactId>{mod_config['name']}</artifactId>
-    <version>{mod_config['version']}</version>
-    <packaging>jar</packaging>
-
-    <name>{mod_config['display_name']}</name>
-    <description>{mod_config.get('description', '')}</description>
-
-    <properties>
+    # Properties section differs for Kotlin
+    if language == "kotlin":
+        properties = f'''    <properties>
+        <kotlin.version>{KOTLIN_VERSION}</kotlin.version>
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <hytale.install.path>{hytale_path_normalized}</hytale.install.path>
         <hytale.toolkit.path>{toolkit_path_normalized}</hytale.toolkit.path>
-    </properties>
-
-    <dependencies>
+    </properties>'''
+        dependencies = f'''    <dependencies>
         <dependency>
             <groupId>com.hypixel.hytale</groupId>
             <artifactId>HytaleServer</artifactId>
@@ -705,9 +771,81 @@ def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str) -> s
             <scope>system</scope>
             <systemPath>${{hytale.install.path}}/Server/HytaleServer.jar</systemPath>
         </dependency>
-    </dependencies>
-
-    <build>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+            <version>${{kotlin.version}}</version>
+        </dependency>
+    </dependencies>'''
+        build_plugins = f'''    <build>
+        <sourceDirectory>${{project.basedir}}/src/main/kotlin</sourceDirectory>
+        <plugins>
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+                <version>${{kotlin.version}}</version>
+                <executions>
+                    <execution>
+                        <id>compile</id>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <jvmTarget>25</jvmTarget>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Plugin-Group>${{project.groupId}}</Plugin-Group>
+                            <Plugin-Name>${{project.artifactId}}</Plugin-Name>
+                            <Plugin-Version>${{project.version}}</Plugin-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>'''
+    else:
+        properties = f'''    <properties>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <hytale.install.path>{hytale_path_normalized}</hytale.install.path>
+        <hytale.toolkit.path>{toolkit_path_normalized}</hytale.toolkit.path>
+    </properties>'''
+        dependencies = f'''    <dependencies>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>HytaleServer</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${{hytale.install.path}}/Server/HytaleServer.jar</systemPath>
+        </dependency>
+    </dependencies>'''
+        build_plugins = f'''    <build>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -748,7 +886,27 @@ def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str) -> s
                 </executions>
             </plugin>
         </plugins>
-    </build>
+    </build>'''
+
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>{mod_config['group']}</groupId>
+    <artifactId>{mod_config['name']}</artifactId>
+    <version>{mod_config['version']}</version>
+    <packaging>jar</packaging>
+
+    <name>{mod_config['display_name']}</name>
+    <description>{mod_config.get('description', '')}</description>
+
+{properties}
+
+{dependencies}
+
+{build_plugins}
 
     <profiles>
         <!-- Run the Hytale server with the plugin installed -->
@@ -1734,7 +1892,7 @@ zipStorePath=wrapper/dists
     return True
 
 
-def create_project_structure(mod_config: dict, project_path: Path, hytale_path: str, toolkit_path: str, ides: list[str], gitignore_ide: bool = True, jdk_path: str = None, build_system: str = "maven") -> bool:
+def create_project_structure(mod_config: dict, project_path: Path, hytale_path: str, toolkit_path: str, ides: list[str], gitignore_ide: bool = True, jdk_path: str = None, build_system: str = "maven", language: str = "java") -> bool:
     """Create the complete mod project structure."""
     if log:
         log_section(log, "Project Creation")
@@ -1744,30 +1902,38 @@ def create_project_structure(mod_config: dict, project_path: Path, hytale_path: 
         log.info(f"Toolkit path: {toolkit_path}")
         log.info(f"IDEs: {ides}")
         log.info(f"Build system: {build_system}")
+        log.info(f"Language: {language}")
         log.info(f"JDK path: {jdk_path}")
 
     print(f"\n  Creating project at: {project_path}")
     print(f"  Build system: {build_system.capitalize()}")
+    print(f"  Language: {language.capitalize()}")
     print()
 
     try:
         # Create directory structure
         project_path.mkdir(parents=True, exist_ok=True)
 
-        # Source directories
+        # Source directories - use kotlin or java based on language selection
         package_path = mod_config['group'].replace('.', '/') + '/' + mod_config['name'].replace('-', '')
-        src_main_java = project_path / "src" / "main" / "java" / package_path
+        source_lang = "kotlin" if language == "kotlin" else "java"
+        src_main_code = project_path / "src" / "main" / source_lang / package_path
         src_main_resources = project_path / "src" / "main" / "resources"
 
-        src_main_java.mkdir(parents=True, exist_ok=True)
+        src_main_code.mkdir(parents=True, exist_ok=True)
         src_main_resources.mkdir(parents=True, exist_ok=True)
 
         print("    Created directory structure")
 
-        # Main class
-        main_class_file = src_main_java / f"{mod_config['main_class']}.java"
-        main_class_file.write_text(generate_main_class(mod_config))
-        print(f"    Created {mod_config['main_class']}.java")
+        # Main class - use appropriate language template and extension
+        if language == "kotlin":
+            main_class_file = src_main_code / f"{mod_config['main_class']}.kt"
+            main_class_file.write_text(generate_main_class_kotlin(mod_config))
+            print(f"    Created {mod_config['main_class']}.kt")
+        else:
+            main_class_file = src_main_code / f"{mod_config['main_class']}.java"
+            main_class_file.write_text(generate_main_class(mod_config))
+            print(f"    Created {mod_config['main_class']}.java")
 
         # manifest.json
         manifest = generate_manifest(mod_config)
@@ -1778,14 +1944,14 @@ def create_project_structure(mod_config: dict, project_path: Path, hytale_path: 
         # Build system specific files
         if build_system == "maven":
             # pom.xml
-            (project_path / "pom.xml").write_text(generate_pom_xml(mod_config, hytale_path, toolkit_path))
+            (project_path / "pom.xml").write_text(generate_pom_xml(mod_config, hytale_path, toolkit_path, language=language))
             print("    Created pom.xml")
 
             # Maven wrapper
             download_maven_wrapper(project_path)
         else:
             # build.gradle.kts
-            (project_path / "build.gradle.kts").write_text(generate_build_gradle(mod_config))
+            (project_path / "build.gradle.kts").write_text(generate_build_gradle(mod_config, language=language))
             print("    Created build.gradle.kts")
 
             # settings.gradle.kts
@@ -1959,6 +2125,7 @@ def create_mod_from_config(config: dict, quiet: bool = False) -> dict:
             - parent_dir (required): Parent directory for the project
             - hytale_path (required): Path to Hytale installation
             - build_system (optional): Build system to use ("maven" or "gradle"), defaults to "maven"
+            - language (optional): Programming language ("java" or "kotlin"), defaults to "java"
             - display_name (optional): Human-readable name
             - version (optional): Semantic version, defaults to "1.0.0"
             - main_class (optional): Main class name, defaults to formatted name
@@ -2014,6 +2181,11 @@ def create_mod_from_config(config: dict, quiet: bool = False) -> dict:
     if build_system not in ("maven", "gradle"):
         return {"success": False, "error": f"Invalid build_system: {build_system}. Must be 'maven' or 'gradle'."}
 
+    # Language (default to java)
+    language = config.get("language", "java")
+    if language not in ("java", "kotlin"):
+        return {"success": False, "error": f"Invalid language: {language}. Must be 'java' or 'kotlin'."}
+
     # Build mod config with defaults
     mod_config = {
         "name": config["name"],
@@ -2055,6 +2227,7 @@ def create_mod_from_config(config: dict, quiet: bool = False) -> dict:
     output(f"  Creating mod: {mod_config['display_name']}")
     output(f"  Location: {project_path}")
     output(f"  Build system: {build_system.capitalize()}")
+    output(f"  Language: {language.capitalize()}")
 
     # Create project structure
     success = create_project_structure(
@@ -2065,7 +2238,8 @@ def create_mod_from_config(config: dict, quiet: bool = False) -> dict:
         ides=ides,
         gitignore_ide=True,
         jdk_path=jdk_path,
-        build_system=build_system
+        build_system=build_system,
+        language=language
     )
 
     if not success:
@@ -2141,6 +2315,8 @@ Examples:
     # Optional arguments
     init_parser.add_argument("--build-system", "-b", type=str, choices=["maven", "gradle"], default="maven",
                         help="Build system to use (default: maven)")
+    init_parser.add_argument("--language", "-l", type=str, choices=["java", "kotlin"], default="java",
+                        help="Programming language to use (default: java)")
     init_parser.add_argument("--display-name", type=str, help="Human-readable mod name")
     init_parser.add_argument("--mod-version", type=str, default="1.0.0", help="Mod version (default: 1.0.0)")
     init_parser.add_argument("--main-class", type=str, help="Main class name")
@@ -2220,6 +2396,7 @@ def run_init_command(args):
                 "parent_dir": args.parent_dir,
                 "hytale_path": args.hytale_path,
                 "build_system": args.build_system,
+                "language": args.language,
             }
 
             if args.display_name:
@@ -2293,9 +2470,9 @@ def run_init_command(args):
         sys.exit(1)
 
     # =========================================================================
-    # Step 2: Build System Selection
+    # Step 2: Build System & Language Selection
     # =========================================================================
-    print_step(2, total_steps, "Build System Selection")
+    print_step(2, total_steps, "Build System & Language Selection")
 
     print("  Choose your preferred build system for the mod project.")
     print()
@@ -2309,6 +2486,20 @@ def run_init_command(args):
 
     if log:
         log.info(f"User selected build system: {build_system}")
+
+    print()
+    print("  Choose your preferred programming language.")
+    print()
+
+    language_options = [
+        ("Java", "Standard choice for Hytale modding, familiar to most developers"),
+        ("Kotlin", "Modern JVM language with concise syntax, null safety, and full Java interop"),
+    ]
+    language_idx = prompt_choice(language_options, "Select language")
+    language = "java" if language_idx == 0 else "kotlin"
+
+    if log:
+        log.info(f"User selected language: {language}")
 
     # =========================================================================
     # Step 3: JDK Setup
@@ -2412,7 +2603,7 @@ def run_init_command(args):
 
     # Server version compatibility
     print("  Server version specifies Hytale version compatibility")
-    print("  Use '*' for any version, or a semver range like '>=1.0.0'")
+    print("  Use '*' for any version, or a SemVer range like '>=1.0.0'")
     mod_config['server_version'] = prompt_string("Server Version", default="*")
     print()
 
@@ -2524,7 +2715,8 @@ def run_init_command(args):
         ides=ides,
         gitignore_ide=gitignore_ide,
         jdk_path=jdk_path,
-        build_system=build_system
+        build_system=build_system,
+        language=language
     )
 
     if not success:
@@ -2640,7 +2832,9 @@ def run_init_command(args):
 
     print("  Next steps:")
     print(f"    1. Open the project in your IDE")
-    print(f"    2. Edit src/main/java/.../{ mod_config['main_class']}.java")
+    source_lang = "kotlin" if language == "kotlin" else "java"
+    file_ext = "kt" if language == "kotlin" else "java"
+    print(f"    2. Edit src/main/{source_lang}/.../{ mod_config['main_class']}.{file_ext}")
     if build_system == "maven":
         print(f"    3. Run 'mvnw package -Prun-server' to test your mod")
     else:

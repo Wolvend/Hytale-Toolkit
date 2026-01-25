@@ -119,7 +119,7 @@ CDN_BASE_URL = "https://cdn.loganmcduffie.com"
 
 def compare_versions(current: str, latest: str) -> int:
     """
-    Compare two semver versions.
+    Compare two SemVer versions.
     Returns: -1 if current < latest, 0 if equal, 1 if current > latest
     """
     def parse(v: str) -> tuple:

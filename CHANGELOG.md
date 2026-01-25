@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.7] - 2025-01-25
 
+### Added
+- Kotlin language support in `hytale-mod init` CLI
+- Interactive language selection prompt (Java or Kotlin)
+- `--language` / `-l` CLI flag for non-interactive mode
+- Kotlin project templates for both Maven and Gradle build systems
+- Idiomatic Kotlin main class template with proper syntax
+
 ### Fixed
+- Changed "semver" to "SemVer" in header so it doesn't look like a typo for "server"
 - CLI tool installation now validates hytale-mod-cli directory exists before installing
 - Shows clear error message if CLI directory is missing (suggests git pull or re-download)
 - Improved UI responsiveness when clicking action buttons (decompile, javadocs, integration)

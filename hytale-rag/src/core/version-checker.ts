@@ -166,7 +166,7 @@ export class VersionChecker {
 
   /**
    * Compare versions to check if latest is newer than current
-   * Uses simple semver comparison (major.minor.patch)
+   * Uses simple SemVer comparison (major.minor.patch)
    */
   private isNewerVersion(latest: string, current: string): boolean {
     const latestParts = latest.split(".").map((p) => parseInt(p, 10) || 0);
