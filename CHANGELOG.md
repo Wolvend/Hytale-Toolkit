@@ -5,6 +5,13 @@ All notable changes to Hytale Toolkit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.11] - 2025-01-25
+
+### Fixed
+- Maven wrapper scripts (`mvnw`, `mvnw.cmd`) now embed the toolkit's JDK path directly
+- Fixes "java not found" errors even when running Maven wrapper from command line
+- Added `<hytale.jdk.path>` property to generated `pom.xml`
+
 ## [1.0.10] - 2025-01-25
 
 ### Fixed

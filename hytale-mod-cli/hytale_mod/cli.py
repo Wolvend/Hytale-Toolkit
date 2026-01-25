@@ -760,10 +760,11 @@ org.gradle.java.home={jdk24_normalized}
     return content
 
 
-def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str, language: str = "java") -> str:
+def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str, language: str = "java", jdk_path: str = None) -> str:
     """Generate pom.xml content for Maven projects."""
     hytale_path_normalized = hytale_path.replace("\\", "/")
     toolkit_path_normalized = toolkit_path.replace("\\", "/")
+    jdk_path_normalized = jdk_path.replace("\\", "/") if jdk_path else ""
 
     # Properties section differs for Kotlin
     if language == "kotlin":
@@ -774,6 +775,7 @@ def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str, lang
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <hytale.install.path>{hytale_path_normalized}</hytale.install.path>
         <hytale.toolkit.path>{toolkit_path_normalized}</hytale.toolkit.path>
+        <hytale.jdk.path>{jdk_path_normalized}</hytale.jdk.path>
     </properties>'''
         dependencies = f'''    <dependencies>
         <dependency>
@@ -847,6 +849,7 @@ def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str, lang
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <hytale.install.path>{hytale_path_normalized}</hytale.install.path>
         <hytale.toolkit.path>{toolkit_path_normalized}</hytale.toolkit.path>
+        <hytale.jdk.path>{jdk_path_normalized}</hytale.jdk.path>
     </properties>'''
         dependencies = f'''    <dependencies>
         <dependency>
@@ -963,7 +966,7 @@ def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str, lang
                                     <goal>exec</goal>
                                 </goals>
                                 <configuration>
-                                    <executable>java</executable>
+                                    <executable>${{hytale.jdk.path}}/bin/java</executable>
                                     <workingDirectory>${{hytale.install.path}}/Server</workingDirectory>
                                     <arguments>
                                         <argument>--enable-native-access=ALL-UNNAMED</argument>
@@ -1021,7 +1024,7 @@ def generate_pom_xml(mod_config: dict, hytale_path: str, toolkit_path: str, lang
 '''
 
 
-def download_maven_wrapper(project_path: Path) -> bool:
+def download_maven_wrapper(project_path: Path, jdk_path: str = None) -> bool:
     """Download and set up Maven wrapper."""
     print("  Setting up Maven wrapper...")
 
@@ -1050,7 +1053,35 @@ wrapperUrl=https://repo.maven.apache.org/maven2/org/apache/maven/wrapper/maven-w
 
     # Create mvnw scripts (embedded to avoid network dependency issues)
     # These scripts use the maven-wrapper.jar with the MavenWrapperMain class
-    mvnw_script = '''#!/bin/sh
+    # For Unix, use the bundled JDK path directly if available
+    jdk_path_unix = jdk_path.replace("\\", "/") if jdk_path else None
+    if jdk_path_unix:
+        mvnw_script = f'''#!/bin/sh
+# Maven Wrapper script
+# Uses maven-wrapper.jar to download and run Maven
+
+BASEDIR=$(cd "$(dirname "$0")" && pwd)
+WRAPPER_JAR="$BASEDIR/.mvn/wrapper/maven-wrapper.jar"
+
+if [ ! -f "$WRAPPER_JAR" ]; then
+    echo "Error: maven-wrapper.jar not found at $WRAPPER_JAR"
+    echo "Please ensure the .mvn/wrapper directory exists with maven-wrapper.jar"
+    exit 1
+fi
+
+# Use bundled JDK from Hytale Toolkit
+JAVACMD="{jdk_path_unix}/bin/java"
+
+# Set MAVEN_PROJECTBASEDIR for multi-module support
+export MAVEN_PROJECTBASEDIR="$BASEDIR"
+
+exec "$JAVACMD" $MAVEN_OPTS \\
+    -Dmaven.multiModuleProjectDirectory="$BASEDIR" \\
+    -classpath "$WRAPPER_JAR" \\
+    org.apache.maven.wrapper.MavenWrapperMain "$@"
+'''
+    else:
+        mvnw_script = '''#!/bin/sh
 # Maven Wrapper script
 # Uses maven-wrapper.jar to download and run Maven
 
@@ -1079,7 +1110,36 @@ exec "$JAVACMD" $MAVEN_OPTS \\
     org.apache.maven.wrapper.MavenWrapperMain "$@"
 '''
 
-    mvnw_cmd_script = '''@echo off
+    # For Windows, use the bundled JDK path directly if available
+    jdk_path_win = jdk_path.replace("/", "\\") if jdk_path else None
+    if jdk_path_win:
+        mvnw_cmd_script = f'''@echo off
+@rem Maven Wrapper script for Windows
+@rem Uses maven-wrapper.jar to download and run Maven
+
+setlocal
+
+set BASEDIR=%~dp0
+@rem Remove trailing backslash if present
+if "%BASEDIR:~-1%"=="\\" set BASEDIR=%BASEDIR:~0,-1%
+
+set WRAPPER_JAR=%BASEDIR%\\.mvn\\wrapper\\maven-wrapper.jar
+
+if not exist "%WRAPPER_JAR%" (
+    echo Error: maven-wrapper.jar not found at %WRAPPER_JAR%
+    echo Please ensure the .mvn\\wrapper directory exists with maven-wrapper.jar
+    exit /b 1
+)
+
+@rem Use bundled JDK from Hytale Toolkit
+set JAVACMD={jdk_path_win}\\bin\\java.exe
+
+set MAVEN_PROJECTBASEDIR=%BASEDIR%
+
+"%JAVACMD%" %MAVEN_OPTS% -Dmaven.multiModuleProjectDirectory="%BASEDIR%" -classpath "%WRAPPER_JAR%" org.apache.maven.wrapper.MavenWrapperMain %*
+'''
+    else:
+        mvnw_cmd_script = '''@echo off
 @rem Maven Wrapper script for Windows
 @rem Uses maven-wrapper.jar to download and run Maven
 
@@ -1981,11 +2041,11 @@ def create_project_structure(mod_config: dict, project_path: Path, hytale_path: 
         # Build system specific files
         if build_system == "maven":
             # pom.xml
-            (project_path / "pom.xml").write_text(generate_pom_xml(mod_config, hytale_path, toolkit_path, language=language))
+            (project_path / "pom.xml").write_text(generate_pom_xml(mod_config, hytale_path, toolkit_path, language=language, jdk_path=jdk_path))
             print("    Created pom.xml")
 
             # Maven wrapper
-            download_maven_wrapper(project_path)
+            download_maven_wrapper(project_path, jdk_path=jdk_path)
         else:
             # build.gradle.kts
             (project_path / "build.gradle.kts").write_text(generate_build_gradle(mod_config, language=language))
