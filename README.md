@@ -6,7 +6,6 @@
 
 *Searchable docs • AI-powered code search • Ready-to-use templates*
 
-[![Demo Video](https://img.shields.io/badge/Demo-Watch_Video-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://youtu.be/txK8oWLufjA)
 [![Java](https://img.shields.io/badge/Java-25-orange?style=flat-square&logo=openjdk)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 [![Wiki](https://img.shields.io/badge/Docs-Wiki-green?style=flat-square&logo=github)](https://github.com/logan-mcduffie/Hytale-Toolkit/wiki)
