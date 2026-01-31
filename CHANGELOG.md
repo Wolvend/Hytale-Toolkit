@@ -5,6 +5,16 @@ All notable changes to Hytale Toolkit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.14] - 2025-01-31
+
+### Fixed
+- RAG search results now show relative file paths instead of absolute paths from indexing machine
+- Users with local decompiled code (via installer) still see full paths to their local files
+- Setup wizard "Next" button no longer becomes stuck when navigating back to Welcome page
+- Improved Python Scripts PATH detection for CLI tools installation
+  - Now uses `pip show` as primary detection method
+  - Fixed path traversal from site-packages to Scripts directory
+
 ## [1.0.13] - 2025-01-25
 
 ### Changed

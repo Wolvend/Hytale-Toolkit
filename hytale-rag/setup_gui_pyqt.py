@@ -3552,9 +3552,21 @@ class ProviderCard(QFrame):
 class ProviderPage(QWidget):
     """Page for selecting embedding provider (Voyage or Ollama)."""
 
+    # Signals for state changes
+    state_changed = pyqtSignal(str)  # idle, installing, completed
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._selected_provider = "voyage"
+        self._button_callback = None
+        self._back_button_callback = None
+        self._state = "idle"  # idle, installing, completed
+        self._process = None
+        self._ollama_installed = False
+        self._ollama_model_ready = False
+        self._dot_count = 0
+        self._dot_timer = None
+        self._install_stage = ""  # "ollama", "model"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 30, 40, 20)
@@ -3680,10 +3692,70 @@ class ProviderPage(QWidget):
 
         layout.addWidget(self.api_key_section)
 
+        # Ollama status section (shown only for Ollama)
+        self.ollama_status_section = QWidget()
+        ollama_status_layout = QVBoxLayout(self.ollama_status_section)
+        ollama_status_layout.setContentsMargins(0, 0, 0, 0)
+        ollama_status_layout.setSpacing(8)
+
+        self.ollama_status = QLabel("")
+        self.ollama_status.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; color: #888888;")
+        self.ollama_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ollama_status_layout.addWidget(self.ollama_status)
+
+        self.ollama_status_section.hide()
+        layout.addWidget(self.ollama_status_section)
+
         layout.addStretch()
 
         self._toolkit_path = None
         self._api_key_loaded = False
+
+        # Check Ollama on init (deferred to allow UI to render)
+        QTimer.singleShot(100, self._check_ollama_status)
+
+    def _check_ollama_status(self):
+        """Check if Ollama is installed and model is ready."""
+        # Check if ollama command exists
+        self._ollama_installed = shutil.which("ollama") is not None
+
+        if self._ollama_installed:
+            # Check if model is pulled by querying the API
+            try:
+                import urllib.request
+                req = urllib.request.Request("http://localhost:11434/api/tags")
+                req.add_header("Content-Type", "application/json")
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    data = json.loads(resp.read().decode())
+                    models = data.get("models", [])
+                    self._ollama_model_ready = any(
+                        m.get("name", "").startswith("nomic-embed-text")
+                        for m in models
+                    )
+            except:
+                self._ollama_model_ready = False
+
+        self._update_ollama_status_display()
+        if self._button_callback:
+            self._button_callback()
+
+    def _update_ollama_status_display(self):
+        """Update the Ollama status label based on current state."""
+        if self._selected_provider != "ollama":
+            return
+
+        if self._state == "installing":
+            return  # Don't update during installation - animation handles it
+
+        if self._ollama_installed and self._ollama_model_ready:
+            self.ollama_status.setText("\u2714  Ollama is ready")
+            self.ollama_status.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; color: #22C55E; font-weight: bold;")
+        elif self._ollama_installed:
+            self.ollama_status.setText("\u26A0  Ollama installed, model not found")
+            self.ollama_status.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; color: #F59E0B;")
+        else:
+            self.ollama_status.setText("Ollama not detected - will be installed")
+            self.ollama_status.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; color: #888888;")
 
     def set_toolkit_path(self, toolkit_path: str):
         """Set the toolkit path and load API key from .env if available."""
@@ -3703,11 +3775,18 @@ class ProviderPage(QWidget):
             self.voyage_card.setSelected(True)
             self.ollama_card.setSelected(False)
             self.api_key_section.setVisible(True)
+            self.ollama_status_section.setVisible(False)
         else:
             self._selected_provider = "ollama"
             self.voyage_card.setSelected(False)
             self.ollama_card.setSelected(True)
             self.api_key_section.setVisible(False)
+            self.ollama_status_section.setVisible(True)
+            self._update_ollama_status_display()
+
+        # Update button state
+        if self._button_callback:
+            self._button_callback()
 
     def get_settings(self) -> dict:
         """Return the provider settings."""
@@ -3717,6 +3796,222 @@ class ProviderPage(QWidget):
             if self._selected_provider == "voyage"
             else "",
         }
+
+    def set_button_callback(self, callback):
+        """Set callback for button state updates."""
+        self._button_callback = callback
+
+    def set_back_button_callback(self, callback):
+        """Set callback for back button state updates."""
+        self._back_button_callback = callback
+
+    def get_next_button_config(self) -> dict:
+        """Get next button configuration based on state."""
+        if self._state == "installing":
+            return {"text": "Installing...", "style": "disabled", "enabled": False}
+
+        if self._selected_provider == "voyage":
+            # Voyage just needs Next
+            return {"text": "Next", "style": "primary", "enabled": True}
+
+        # Ollama selected
+        if self._ollama_installed and self._ollama_model_ready:
+            return {"text": "Next", "style": "primary", "enabled": True}
+        elif self._state == "completed":
+            return {"text": "Next", "style": "primary", "enabled": True}
+        else:
+            return {"text": "Install", "style": "action", "enabled": True}
+
+    def get_back_button_config(self) -> dict:
+        """Get back button configuration based on state."""
+        if self._state == "installing":
+            return {"text": "Cancel", "style": "danger", "enabled": True}
+        else:
+            return {"text": "Back", "style": "default", "enabled": True}
+
+    def should_run_action(self) -> bool:
+        """Check if clicking Next should trigger install instead of navigation."""
+        if self._selected_provider != "ollama":
+            return False
+        if self._state == "completed":
+            return False
+        if self._ollama_installed and self._ollama_model_ready:
+            return False
+        return self._state == "idle"
+
+    def start_install(self):
+        """Start installing Ollama and/or pulling the model."""
+        if self._state == "installing":
+            return
+
+        self._state = "installing"
+        self.state_changed.emit("installing")
+
+        # Show animated status
+        self.ollama_status_section.show()
+        self._dot_count = 0
+
+        # Start dot animation timer
+        self._dot_timer = QTimer(self)
+        self._dot_timer.timeout.connect(self._animate_dots)
+        self._dot_timer.start(400)
+
+        if self._button_callback:
+            self._button_callback()
+        if self._back_button_callback:
+            self._back_button_callback()
+
+        if not self._ollama_installed:
+            self._install_stage = "ollama"
+            self._start_ollama_install()
+        else:
+            self._install_stage = "model"
+            self._start_model_pull()
+
+    def _animate_dots(self):
+        """Animate the installing dots."""
+        self._dot_count = (self._dot_count + 1) % 4
+        dots = "." * self._dot_count + " " * (3 - self._dot_count)
+        if self._install_stage == "ollama":
+            self.ollama_status.setText(f"Installing Ollama{dots}")
+        else:
+            self.ollama_status.setText(f"Pulling embedding model{dots}")
+        self.ollama_status.setStyleSheet("font-size: 12px; color: #3498db;")
+
+    def _start_ollama_install(self):
+        """Start Ollama installation via winget."""
+        self._process = QProcess(self)
+        self._process.finished.connect(self._handle_ollama_install_finished)
+
+        if sys.platform == "win32":
+            # Use winget on Windows
+            self._process.start("cmd", [
+                "/c", "winget", "install", "-e", "--id", "Ollama.Ollama",
+                "--accept-source-agreements", "--accept-package-agreements"
+            ])
+        elif sys.platform == "darwin":
+            # Use brew on macOS
+            self._process.start("brew", ["install", "ollama"])
+        else:
+            # Linux - use curl script
+            self._process.start("bash", ["-c", "curl -fsSL https://ollama.com/install.sh | sh"])
+
+    def _handle_ollama_install_finished(self, exit_code: int, exit_status):
+        """Handle Ollama installation completion."""
+        self._process = None
+
+        if exit_code == 0:
+            self._ollama_installed = True
+            # Now pull the model
+            self._install_stage = "model"
+            self._start_model_pull()
+        else:
+            self._finish_install_failed("Ollama installation failed. Please install manually from ollama.com")
+
+    def _start_model_pull(self):
+        """Start pulling the nomic-embed-text model."""
+        # First, we need to ensure Ollama is running
+        # On Windows, Ollama should auto-start after install, but let's try to start it
+        self._ensure_ollama_running()
+
+        self._process = QProcess(self)
+        self._process.finished.connect(self._handle_model_pull_finished)
+
+        if sys.platform == "win32":
+            self._process.start("cmd", ["/c", "ollama", "pull", "nomic-embed-text"])
+        else:
+            self._process.start("ollama", ["pull", "nomic-embed-text"])
+
+    def _ensure_ollama_running(self):
+        """Try to start Ollama if not running."""
+        try:
+            import urllib.request
+            req = urllib.request.Request("http://localhost:11434/api/tags")
+            urllib.request.urlopen(req, timeout=1)
+        except:
+            # Not running, try to start it
+            if sys.platform == "win32":
+                # On Windows, start Ollama in background
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "/b", "ollama", "serve"],
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            # Give it a moment to start
+            import time
+            time.sleep(2)
+
+    def _handle_model_pull_finished(self, exit_code: int, exit_status):
+        """Handle model pull completion."""
+        self._process = None
+
+        if exit_code == 0:
+            self._ollama_model_ready = True
+            self._finish_install_success()
+        else:
+            self._finish_install_failed("Failed to pull embedding model. Please run: ollama pull nomic-embed-text")
+
+    def _finish_install_success(self):
+        """Handle successful installation."""
+        if self._dot_timer:
+            self._dot_timer.stop()
+            self._dot_timer = None
+
+        self._state = "completed"
+        self.ollama_status.setText("\u2714  Ollama is ready!")
+        self.ollama_status.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; color: #22C55E; font-weight: bold;")
+
+        self.state_changed.emit("completed")
+        if self._button_callback:
+            self._button_callback()
+        if self._back_button_callback:
+            self._back_button_callback()
+
+    def _finish_install_failed(self, error_msg: str):
+        """Handle failed installation."""
+        if self._dot_timer:
+            self._dot_timer.stop()
+            self._dot_timer = None
+
+        self._state = "idle"
+        self.ollama_status.setText(f"\u2718  {error_msg}")
+        self.ollama_status.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; color: #EF4444;")
+
+        self.state_changed.emit("idle")
+        if self._button_callback:
+            self._button_callback()
+        if self._back_button_callback:
+            self._back_button_callback()
+
+    def cancel_install(self):
+        """Cancel the installation process."""
+        if self._dot_timer:
+            self._dot_timer.stop()
+            self._dot_timer = None
+
+        if self._process and self._process.state() == QProcess.ProcessState.Running:
+            self._process.kill()
+            self._process.waitForFinished(1000)
+        self._process = None
+
+        self._state = "idle"
+        self._update_ollama_status_display()
+        self.state_changed.emit("idle")
+        if self._button_callback:
+            self._button_callback()
+        if self._back_button_callback:
+            self._back_button_callback()
+
+    def get_state(self) -> str:
+        """Get current page state."""
+        return self._state
 
 
 class DatabasePage(QWidget):
@@ -5706,63 +6001,79 @@ class CLIToolsPage(QWidget):
         try:
             import winreg
 
-            # Find the Python Scripts directory
-            # pip installs to: %APPDATA%\Python\PythonXX\Scripts (user install)
-            # or: %LOCALAPPDATA%\Programs\Python\PythonXX\Scripts
+            # Find the Python Scripts directory where pip installed hytale-mod
             scripts_dirs = []
 
-            # Check common locations for user-installed Python scripts
-            appdata = os.environ.get("APPDATA", "")
-            localappdata = os.environ.get("LOCALAPPDATA", "")
+            def has_hytale_mod(scripts_dir: Path) -> bool:
+                """Check if hytale-mod executable exists in scripts dir."""
+                return (scripts_dir / "hytale-mod.exe").exists()
 
-            if appdata:
-                # User pip install location
-                python_roaming = Path(appdata) / "Python"
-                if python_roaming.exists():
-                    for py_dir in python_roaming.iterdir():
-                        if py_dir.is_dir() and py_dir.name.startswith("Python"):
-                            scripts = py_dir / "Scripts"
-                            if scripts.exists() and (scripts / "hytale-mod.exe").exists():
+            # Method 1: Use pip show to find where hytale-mod was installed
+            # This is the most reliable method as it queries pip directly
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "show", "-f", "hytale-mod"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                if result.returncode == 0:
+                    # Parse the Location line (points to site-packages)
+                    for line in result.stdout.split("\n"):
+                        if line.startswith("Location:"):
+                            location = line.split(":", 1)[1].strip()
+                            # site-packages is typically at:
+                            # - Lib/site-packages (system install)
+                            # - Python3X/site-packages (user install in %APPDATA%)
+                            # Scripts is at the same level as Lib or one level up
+                            loc_path = Path(location)
+
+                            # Try: location/../Scripts (for user installs)
+                            scripts = loc_path.parent / "Scripts"
+                            if scripts.exists() and has_hytale_mod(scripts):
                                 scripts_dirs.append(str(scripts))
 
-            if localappdata:
-                # Standard Python installation Scripts
-                python_local = Path(localappdata) / "Programs" / "Python"
-                if python_local.exists():
-                    for py_dir in python_local.iterdir():
-                        if py_dir.is_dir() and py_dir.name.startswith("Python"):
-                            scripts = py_dir / "Scripts"
-                            if scripts.exists() and (scripts / "hytale-mod.exe").exists():
-                                scripts_dirs.append(str(scripts))
+                            # Try: location/../../Scripts (for system installs where location is Lib/site-packages)
+                            if not scripts_dirs:
+                                scripts = loc_path.parent.parent / "Scripts"
+                                if scripts.exists() and has_hytale_mod(scripts):
+                                    scripts_dirs.append(str(scripts))
+                            break
+            except Exception:
+                pass
 
-            # Also check the current Python's Scripts directory
-            if hasattr(sys, 'base_prefix'):
+            # Method 2: Check the current Python interpreter's Scripts directory
+            if not scripts_dirs and hasattr(sys, 'base_prefix'):
                 base_scripts = Path(sys.base_prefix) / "Scripts"
-                if base_scripts.exists() and (base_scripts / "hytale-mod.exe").exists():
+                if base_scripts.exists() and has_hytale_mod(base_scripts):
                     scripts_dirs.append(str(base_scripts))
 
-            # Find the first scripts dir that has hytale-mod.exe
+            # Method 3: Check common user install locations
             if not scripts_dirs:
-                # Fallback: run pip show to find where it was installed
-                try:
-                    result = subprocess.run(
-                        ["pip", "show", "-f", "hytale-mod"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    if result.returncode == 0:
-                        # Parse the Location line
-                        for line in result.stdout.split("\n"):
-                            if line.startswith("Location:"):
-                                location = line.split(":", 1)[1].strip()
-                                # Scripts is usually at same level as site-packages
-                                scripts = Path(location).parent / "Scripts"
-                                if scripts.exists():
+                appdata = os.environ.get("APPDATA", "")
+                localappdata = os.environ.get("LOCALAPPDATA", "")
+
+                if appdata:
+                    # User pip install location: %APPDATA%\Python\PythonXX\Scripts
+                    python_roaming = Path(appdata) / "Python"
+                    if python_roaming.exists():
+                        for py_dir in sorted(python_roaming.iterdir(), reverse=True):  # Newest Python first
+                            if py_dir.is_dir() and py_dir.name.startswith("Python"):
+                                scripts = py_dir / "Scripts"
+                                if scripts.exists() and has_hytale_mod(scripts):
                                     scripts_dirs.append(str(scripts))
-                                break
-                except Exception:
-                    pass
+                                    break
+
+                if not scripts_dirs and localappdata:
+                    # Standard Python installation: %LOCALAPPDATA%\Programs\Python\PythonXX\Scripts
+                    python_local = Path(localappdata) / "Programs" / "Python"
+                    if python_local.exists():
+                        for py_dir in sorted(python_local.iterdir(), reverse=True):  # Newest Python first
+                            if py_dir.is_dir() and py_dir.name.startswith("Python"):
+                                scripts = py_dir / "Scripts"
+                                if scripts.exists() and has_hytale_mod(scripts):
+                                    scripts_dirs.append(str(scripts))
+                                    break
 
             if not scripts_dirs:
                 return False, "Could not find Python Scripts directory"
@@ -6285,11 +6596,13 @@ class SetupWizard(QMainWindow):
         elif index == len(self.pages) - 1:
             # Last page
             self.next_btn.setText("Finish")
+            self.next_btn.setEnabled(True)
             self.set_next_button_style("primary")
             self.set_back_button_style("default")
         else:
-            # Default
+            # Default - ensure button is enabled for simple pages like WelcomePage
             self.next_btn.setText("Next")
+            self.next_btn.setEnabled(True)
             self.set_next_button_style("primary")
             self.set_back_button_style("default")
 
@@ -6436,6 +6749,8 @@ class SetupWizard(QMainWindow):
                 page.start_decompile()
             elif isinstance(page, JavadocsPage):
                 page.start_generate()
+            elif isinstance(page, ProviderPage):
+                page.start_install()
             elif isinstance(page, DatabasePage):
                 page.start_download()
             elif isinstance(page, IntegrationPage):
@@ -6456,13 +6771,15 @@ class SetupWizard(QMainWindow):
 
         # Check if page is running and should be cancelled
         state = page.get_state() if hasattr(page, 'get_state') else None
-        if state in ["running", "downloading"]:
+        if state in ["running", "downloading", "installing"]:
             if isinstance(page, HytalePathPage):
                 page.cancel_download()
             elif isinstance(page, DecompilePage):
                 page.cancel_decompile()
             elif isinstance(page, JavadocsPage):
                 page.cancel_generate()
+            elif isinstance(page, ProviderPage):
+                page.cancel_install()
             elif isinstance(page, DatabasePage):
                 page.cancel_download()
             elif isinstance(page, CLIToolsPage):

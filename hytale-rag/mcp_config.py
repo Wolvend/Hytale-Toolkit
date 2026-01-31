@@ -48,6 +48,11 @@ MCP_CLIENTS = {
         "description": "GitHub Copilot in JetBrains IDEs",
         "config_type": "json",
     },
+    "gemini_cli": {
+        "name": "Gemini CLI",
+        "description": "Google's command-line AI coding tool",
+        "config_type": "json",
+    },
 }
 
 
