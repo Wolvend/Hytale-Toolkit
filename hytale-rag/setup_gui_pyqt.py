@@ -6095,6 +6095,17 @@ class CLIToolsPage(QWidget):
                                     scripts_dirs.append(str(scripts))
                                     break
 
+                if not scripts_dirs and localappdata:
+                    # Windows Store / pythoncore installs: %LOCALAPPDATA%\Python\pythoncore-X.XX-64\Scripts
+                    python_local_direct = Path(localappdata) / "Python"
+                    if python_local_direct.exists():
+                        for py_dir in sorted(python_local_direct.iterdir(), reverse=True):
+                            if py_dir.is_dir() and (py_dir.name.startswith("Python") or py_dir.name.startswith("pythoncore")):
+                                scripts = py_dir / "Scripts"
+                                if scripts.exists() and has_hytale_mod(scripts):
+                                    scripts_dirs.append(str(scripts))
+                                    break
+
             if not scripts_dirs:
                 return False, "Could not find Python Scripts directory"
 

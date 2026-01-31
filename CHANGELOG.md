@@ -5,6 +5,12 @@ All notable changes to Hytale Toolkit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.16] - 2025-01-31
+
+### Fixed
+- PATH detection now supports Windows Store Python and pythoncore installations
+- Fixes "Could not find Python Scripts directory" for Python installed at `%LOCALAPPDATA%\Python`
+
 ## [1.0.15] - 2025-01-31
 
 ### Fixed
