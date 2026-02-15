@@ -5,6 +5,12 @@ All notable changes to Hytale Toolkit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.18] - 2026-02-14
+
+### Fixed
+- "Git required" error no longer shown incorrectly when git is installed but clone fails for other reasons
+- Git-not-found detection now uses QProcess FailedToStart signal instead of matching "not found" in error text
+
 ## [1.0.17] - 2026-02-14
 
 ### Fixed

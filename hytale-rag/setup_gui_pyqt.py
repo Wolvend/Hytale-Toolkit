@@ -1299,6 +1299,8 @@ class HytalePathPage(QWidget):
         self._process.setWorkingDirectory(str(toolkit_path.parent))
         self._process.readyReadStandardError.connect(self._handle_git_stderr)
         self._process.finished.connect(self._handle_download_finished)
+        self._git_failed_to_start = False
+        self._process.errorOccurred.connect(self._handle_git_error)
 
         # Use git clone
         repo_url = "https://github.com/logan-mcduffie/Hytale-Toolkit.git"
@@ -1309,6 +1311,11 @@ class HytalePathPage(QWidget):
             self._process.start("cmd", ["/c", "git", "clone", "--depth", "1", repo_url, folder_name])
         else:
             self._process.start("git", ["clone", "--depth", "1", repo_url, folder_name])
+
+    def _handle_git_error(self, error):
+        """Track if git process failed to start (binary not found)."""
+        if error == QProcess.ProcessError.FailedToStart:
+            self._git_failed_to_start = True
 
     def _handle_git_stderr(self):
         """Capture git stderr for error messages."""
@@ -1350,7 +1357,7 @@ class HytalePathPage(QWidget):
             if "already exists" in error_msg:
                 self.download_status.setText("\u2718  Folder not empty - clear it first")
                 self.download_status.setStyleSheet("font-family: 'Segoe UI Symbol', 'Segoe UI'; font-size: 12px; color: #EF4444;")
-            elif "not found" in error_msg.lower() or exit_code == 1 and not error_msg:
+            elif self._git_failed_to_start or (exit_code == 1 and not error_msg):
                 # Git not found - show link to download
                 git_url = "https://git-scm.com/downloads"
                 self.download_status.setText(
