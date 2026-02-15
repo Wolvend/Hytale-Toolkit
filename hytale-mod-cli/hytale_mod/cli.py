@@ -448,21 +448,70 @@ def validate_hytale_installation(folder: str) -> tuple[bool, list[str]]:
     return len(missing) == 0, missing
 
 
+def _open_folder_picker_zenity(title: str, initial_dir: str | None) -> str | None:
+    """Try opening a folder picker using zenity (common on GNOME/GTK Linux desktops)."""
+    cmd = ["zenity", "--file-selection", "--directory", "--title", title]
+    if initial_dir:
+        cmd.extend(["--filename", initial_dir + "/"])
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return None
+
+
+def _open_folder_picker_kdialog(title: str, initial_dir: str | None) -> str | None:
+    """Try opening a folder picker using kdialog (common on KDE Linux desktops)."""
+    cmd = ["kdialog", "--getexistingdirectory", initial_dir or str(Path.home()), "--title", title]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return None
+
+
+def _open_folder_picker_tkinter(title: str, initial_dir: str | None) -> str | None:
+    """Try opening a folder picker using tkinter."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    folder = filedialog.askdirectory(title=title, initialdir=initial_dir)
+    root.destroy()
+
+    return folder if folder else None
+
+
 def open_folder_picker(title: str = "Select Folder", initial_dir: str = None) -> str | None:
-    """Open a native folder picker dialog."""
+    """Open a native folder picker dialog.
+
+    On Linux, tries zenity or kdialog first (better Wayland/native desktop support),
+    then falls back to tkinter. On other platforms, uses tkinter directly.
+    """
+    if platform.system() == "Linux":
+        # Prefer native Linux dialog tools — they handle Wayland properly
+        for picker in [_open_folder_picker_zenity, _open_folder_picker_kdialog]:
+            try:
+                result = picker(title, initial_dir)
+                if result:
+                    return result
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                # Tool not installed or timed out, try next
+                continue
+            except Exception:
+                continue
+
+    # Fall back to tkinter (primary method on Windows/macOS)
+    # On Linux, skip tkinter — it can hang on Wayland and is often not installed.
+    # If we reach here on Linux, neither zenity nor kdialog worked, so return None
+    # to fall through to manual path input.
+    if platform.system() == "Linux":
+        return None
+
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-
-        folder = filedialog.askdirectory(title=title, initialdir=initial_dir)
-        root.destroy()
-
-        return folder if folder else None
-    except ImportError:
+        return _open_folder_picker_tkinter(title, initial_dir)
+    except Exception:
         return None
 
 
