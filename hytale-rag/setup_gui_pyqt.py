@@ -50,7 +50,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
 )
-from PyQt6.QtCore import Qt, QSize, QProcess, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QSize, QProcess, QProcessEnvironment, pyqtSignal, QTimer
 from PyQt6.QtGui import (
     QPixmap,
     QPainter,
@@ -104,6 +104,58 @@ def get_icon_path(name: str) -> Path | None:
         if path.exists():
             return path
     return None
+
+
+def _clean_pyinstaller_env() -> QProcessEnvironment | None:
+    """Return a QProcessEnvironment with PyInstaller's library path overrides removed.
+
+    When running as a PyInstaller bundle, LD_LIBRARY_PATH (Linux) and
+    DYLD_LIBRARY_PATH (macOS) point to the temp extraction directory. Child
+    processes that use system libraries (e.g. system Python's _ssl) will load
+    the bundled, potentially older, libraries instead of the system ones,
+    causing version-mismatch ImportErrors.
+
+    Returns None when not running as a bundle (no env override needed).
+    """
+    if not getattr(_sys, '_MEIPASS', None):
+        return None
+
+    env = QProcessEnvironment.systemEnvironment()
+    for var in ('LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH'):
+        orig_key = f'{var}_ORIG'
+        if env.contains(orig_key):
+            # PyInstaller saves the original value; restore it
+            orig = env.value(orig_key)
+            if orig:
+                env.insert(var, orig)
+            else:
+                env.remove(var)
+        elif env.contains(var):
+            env.remove(var)
+    return env
+
+
+def _clean_subprocess_env() -> dict | None:
+    """Return an os.environ copy with PyInstaller's library path overrides removed.
+
+    For use with subprocess.run / subprocess.Popen.
+    Returns None when not running as a bundle.
+    """
+    if not getattr(_sys, '_MEIPASS', None):
+        return None
+
+    clean = os.environ.copy()
+    for var in ('LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH'):
+        orig_key = f'{var}_ORIG'
+        if orig_key in clean:
+            orig = clean[orig_key]
+            if orig:
+                clean[var] = orig
+            else:
+                clean.pop(var, None)
+        else:
+            clean.pop(var, None)
+    return clean
 
 
 # =============================================================================
@@ -1302,6 +1354,11 @@ class HytalePathPage(QWidget):
         self._git_failed_to_start = False
         self._process.errorOccurred.connect(self._handle_git_error)
 
+        # Strip PyInstaller's LD_LIBRARY_PATH so system tools use their own libs
+        clean_env = _clean_pyinstaller_env()
+        if clean_env:
+            self._process.setProcessEnvironment(clean_env)
+
         # Use git clone
         repo_url = "https://github.com/logan-mcduffie/Hytale-Toolkit.git"
         folder_name = toolkit_path.name
@@ -2407,6 +2464,11 @@ class DecompilePage(QWidget):
         self._process.finished.connect(self._handle_finished)
         self._process.errorOccurred.connect(self._handle_error)
 
+        # Strip PyInstaller's LD_LIBRARY_PATH so system tools use their own libs
+        clean_env = _clean_pyinstaller_env()
+        if clean_env:
+            self._process.setProcessEnvironment(clean_env)
+
         # Build command
         args = [
             "-Xms2G",
@@ -3192,6 +3254,11 @@ class JavadocsPage(QWidget):
         self._process.finished.connect(self._handle_finished)
         self._process.errorOccurred.connect(self._handle_error)
 
+        # Strip PyInstaller's LD_LIBRARY_PATH so system tools use their own libs
+        clean_env = _clean_pyinstaller_env()
+        if clean_env:
+            self._process.setProcessEnvironment(clean_env)
+
         # Build command
         args = [
             f"-J-Xms2G",
@@ -3906,6 +3973,11 @@ class ProviderPage(QWidget):
         self._process = QProcess(self)
         self._process.finished.connect(self._handle_ollama_install_finished)
 
+        # Strip PyInstaller's LD_LIBRARY_PATH so system tools use their own libs
+        clean_env = _clean_pyinstaller_env()
+        if clean_env:
+            self._process.setProcessEnvironment(clean_env)
+
         if sys.platform == "win32":
             # Use winget on Windows
             self._process.start("cmd", [
@@ -3940,6 +4012,11 @@ class ProviderPage(QWidget):
         self._process = QProcess(self)
         self._process.finished.connect(self._handle_model_pull_finished)
 
+        # Strip PyInstaller's LD_LIBRARY_PATH so system tools use their own libs
+        clean_env = _clean_pyinstaller_env()
+        if clean_env:
+            self._process.setProcessEnvironment(clean_env)
+
         if sys.platform == "win32":
             self._process.start("cmd", ["/c", "ollama", "pull", "nomic-embed-text"])
         else:
@@ -3965,7 +4042,8 @@ class ProviderPage(QWidget):
                 subprocess.Popen(
                     ["ollama", "serve"],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
+                    env=_clean_subprocess_env() or None,
                 )
             # Give it a moment to start
             import time
@@ -4488,6 +4566,11 @@ class DatabasePage(QWidget):
         self._process.finished.connect(self._handle_finished)
         self._process.errorOccurred.connect(self._handle_error)
 
+        # Strip PyInstaller's LD_LIBRARY_PATH so system Python uses its own libs
+        clean_env = _clean_pyinstaller_env()
+        if clean_env:
+            self._process.setProcessEnvironment(clean_env)
+
         # Find Python interpreter (sys.executable is the .exe when frozen)
         if getattr(_sys, '_MEIPASS', None):
             # Running as bundled exe - find system Python
@@ -4758,6 +4841,7 @@ def check_node_installed() -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=5,
+            env=_clean_subprocess_env() or None,
             **kwargs
         )
         if result.returncode == 0:
@@ -4784,6 +4868,7 @@ def check_java_installed() -> tuple[bool, str, int]:
             capture_output=True,
             text=True,
             timeout=10,
+            env=_clean_subprocess_env() or None,
             **kwargs
         )
         # Java outputs version to stderr
@@ -5335,6 +5420,7 @@ class IntegrationPage(QWidget):
                     capture_output=True,
                     text=True,
                     timeout=120,
+                    env=_clean_subprocess_env() or None,
                     **kwargs
                 )
                 if result.returncode != 0:
@@ -5974,7 +6060,8 @@ class CLIToolsPage(QWidget):
                 [python_cmd, "-m", "pip", "show", "hytale-mod"],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
+                env=_clean_subprocess_env() or None,
             )
             if result.returncode == 0:
                 # Parse version from output
@@ -6229,6 +6316,11 @@ class CLIToolsPage(QWidget):
         self._process.readyReadStandardOutput.connect(self._handle_stdout)
         self._process.readyReadStandardError.connect(self._handle_stderr)
         self._process.finished.connect(self._handle_finished)
+
+        # Strip PyInstaller's LD_LIBRARY_PATH so system Python uses its own libs
+        clean_env = _clean_pyinstaller_env()
+        if clean_env:
+            self._process.setProcessEnvironment(clean_env)
 
         # Install from the toolkit root directory, pointing to the CLI subdirectory
         if self._toolkit_path:

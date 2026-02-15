@@ -5,6 +5,12 @@ All notable changes to Hytale Toolkit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.19] - 2026-02-14
+
+### Fixed
+- SSL ImportError crash on Linux (e.g. CachyOS with Python 3.14) when running as PyInstaller bundle
+- PyInstaller's bundled `libcrypto.so.3` no longer leaks into child processes via `LD_LIBRARY_PATH`
+
 ## [1.0.18] - 2026-02-14
 
 ### Fixed
